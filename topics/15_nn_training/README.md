@@ -63,7 +63,7 @@ $0.9^{50} \approx 0.005$ (затухание), $1.1^{50} \approx 117$ (взры�
 | **Kaiming / He** (2015) | $\frac{2}{n_{\text{in}}}$ (gain $= \sqrt2$: ReLU «съедает» половину сигнала) | **ReLU** и её варианты |
 
 Формула — выкладка про дисперсию, верная **на инициализации** (веса независимы, вход независим от весов)
-(вывод (см. раздел «1. Инициализация: вывод Xavier и He»)). В PyTorch `nn.Linear`/`nn.Conv2d` по умолчанию используют вариант Kaiming-uniform.
+(вывод — см. раздел «1. Инициализация: вывод Xavier и He»). В PyTorch `nn.Linear`/`nn.Conv2d` по умолчанию используют вариант Kaiming-uniform.
 Поиграйте: [deeplearning.ai — Initialization](https://www.deeplearning.ai/ai-notes/initialization/).
 
 ```python

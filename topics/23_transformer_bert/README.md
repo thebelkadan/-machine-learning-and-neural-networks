@@ -61,7 +61,7 @@ $$
 Строка $i$ матрицы весов — распределение внимания токена $i$ по всем токенам; выход — взвешенная сумма значений. В оригинале
 $d_k = d_v = 64$. Пример из лекции: в «The animal didn't cross the street because **it** was too tired» представление «it»
 на следующем слое должно впитать «animal»; к чему относится «making» в другой фразе — тоже видно по весам (визуализатор exBERT).
-Деление на $\sqrt{d_k}$ — [deep тема 22, §3](../22_seq2seq_attention/README.md).
+Деление на $\sqrt{d_k}$ — [тема 22, раздел «3. Зачем делить на корень из d»](../22_seq2seq_attention/README.md).
 
 Self-attention можно рассматривать как **полный граф** на токенах с **пулингом по релевантности**: веса рёбер вычисляются из данных.
 
@@ -314,7 +314,7 @@ bias correction её увеличивает; плюс LayerNorm (особенн�
 SST-2 (тональность) и др.
 
 **Признаки из BERT без дообучения** — как в ELMo, комбинировать слои: для NER конкатенация последних четырёх слоёв почти не уступает
-дообучению. Вектор слова зависит от контекста: в L1-примере «bank» в финансовых предложениях — косинус 0.90, в «речных» — 0.84,
+дообучению. Вектор слова зависит от контекста: в примере кода этой темы «bank» в финансовых предложениях — косинус 0.90, в «речных» — 0.84,
 между группами — 0.63.
 
 </details>
@@ -400,11 +400,11 @@ instruct, chat template, LoRA, PEFT) — [тема 25](../25_llm_finetuning_peft
 <details>
 <summary><b>Чек-лист</b></summary>
 
-- [ ] Маски: padding во всех вниманиях, causal в декодере; формы масок согласованы с `[B, h, Tq, Tk]`.
-- [ ] Позиции: синусоиды/обучаемые/RoPE; длина инференса ≤ длины обучения (или RoPE-скейлинг).
-- [ ] Pre-LN, warm-up + cosine, AdamW, клиппинг 1.0, label smoothing 0.1 для seq2seq.
-- [ ] Для понимания текста — дообучать BERT-подобную модель (lr 2e-5…5e-5, 2–4 эпохи); для NER — выравнивание меток по `word_ids`.
-- [ ] Секреты (токены HF, wandb) — не в коде.
+- [] Маски: padding во всех вниманиях, causal в декодере; формы масок согласованы с `[B, h, Tq, Tk]`.
+- [] Позиции: синусоиды/обучаемые/RoPE; длина инференса ≤ длины обучения (или RoPE-скейлинг).
+- [] Pre-LN, warm-up + cosine, AdamW, клиппинг 1.0, label smoothing 0.1 для seq2seq.
+- [] Для понимания текста — дообучать BERT-подобную модель (lr 2e-5…5e-5, 2–4 эпохи); для NER — выравнивание меток по `word_ids`.
+- [] Секреты (токены HF, wandb) — не в коде.
 
 </details>
 
@@ -421,7 +421,7 @@ $$
 
 так как построчный softmax коммутирует с перестановкой строк и столбцов. FFN, LayerNorm и residual действуют на каждый токен отдельно —
 тоже эквивариантны. Значит, весь энкодер без позиций — функция **множества** токенов: переставили вход — так же переставился выход.
-В L1-примере задача «сколько раз встречается токен» (не зависит от порядка) решается без PE (0.993), а «какой токен слева» — нет (0.239).
+В примере кода этой темы задача «сколько раз встречается токен» (не зависит от порядка) решается без PE (0.993), а «какой токен слева» — нет (0.239).
 
 </details>
 
@@ -817,7 +817,7 @@ She sat on the [MASK] of the river.    [('bank', 0.27), ('edge', 0.25), ('banks'
 
 - **Лекции курса** (файлы в репозиторий не включены): DL, лекция 9: трансформер и BERT · DL: повторение (обзор курса)
 - **Семинары:** [Семинар 9: трансформер, Hugging Face, NER](../../materials/seminars/23_Семинар_9_Transformer_HF_NER.ipynb) ([Colab](https://colab.research.google.com/drive/1kJBn03m4qCQH-Atgp-QoLOKoopMqVQM_)) · [Семинар 10: от трансформера к PEFT и SFT](../../materials/seminars/23-25_Семинар_10_Transformer_PEFT_SFT.ipynb) ([Colab](https://colab.research.google.com/drive/1yQ4b8tCat38RpLbeQIIIMqYpz4QIpoRE))
-- **Видео и внешние курсы:** [Яндекс: трансформеры](https://contest.yandex.ru/tracks/ml/deep-learning-architectures/transformers) · [ CS224n, лекция из плейлиста (YouTube)](https://www.youtube.com/watch?v=LWMzyfvuehA&list=PLoROMvodv4rOaMFbaqxPDoLWjDaRAdP9D&index=9) · [Лена Войта — Seq2seq and Attention](https://lena-voita.github.io/nlp_course/seq2seq_and_attention.html) · [DL2 HSE (thecrazymage/DL2_HSE)](https://github.com/thecrazymage/DL2_HSE) · [Stanford CS336 — Language Modeling from Scratch](https://cs336.stanford.edu/)
+- **Видео и внешние курсы:** [Яндекс: трансформеры](https://contest.yandex.ru/tracks/ml/deep-learning-architectures/transformers) · [CS224n, лекция из плейлиста (YouTube)](https://www.youtube.com/watch?v=LWMzyfvuehA&list=PLoROMvodv4rOaMFbaqxPDoLWjDaRAdP9D&index=9) · [Лена Войта — Seq2seq and Attention](https://lena-voita.github.io/nlp_course/seq2seq_and_attention.html) · [DL2 HSE (thecrazymage/DL2_HSE)](https://github.com/thecrazymage/DL2_HSE) · [Stanford CS336 — Language Modeling from Scratch](https://cs336.stanford.edu/)
 
 </details>
 

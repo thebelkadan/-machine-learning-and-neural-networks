@@ -40,6 +40,14 @@ parts:
   - caption: IV. Генеративные модели
     chapters:
       - file: topics/27_generative_models/README
+  - caption: V. Дополнительно
+    chapters:
+      - file: topics/28_vit_ssl_multimodal/README
+      - file: topics/29_efficient_training_inference/README
+      - file: topics/30_interpretability/README
+      - file: topics/31_reinforcement_learning/README
+      - file: topics/32_graph_neural_networks/README
+      - file: topics/33_time_series/README
   - caption: Справка
     chapters:
       - file: SOURCES

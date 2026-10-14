@@ -34,9 +34,9 @@
 | `Лекция 10.pptx` | не включена | 24, 25 |
 | `Лекция 12.pptx` | не включена | 27 |
 | `Повторение.pptx` | не включена | 04, 14, 15, 16, 20, 22, 23, 24 |
-| `NLP лекция_Сириус_Мамаев.html` | не включена | 21, 24 |
-| `recsys-mamaev-hse (1) (2).ipynb` | [`seminars/13_recsys_mamaev_hse.ipynb`](materials/seminars/13_recsys_mamaev_hse.ipynb) | 13 |
-| `seminar_recsys_mamaev_hse (1).ipynb` | [`seminars/13_seminar_recsys_mamaev_hse.ipynb`](materials/seminars/13_seminar_recsys_mamaev_hse.ipynb) | 13 |
+| `NLP лекция_Сириус.html` | не включена | 21, 24 |
+| `recsys-hse.ipynb` | [`seminars/13_recsys_hse.ipynb`](materials/seminars/13_recsys_hse.ipynb) | 13 |
+| `seminar_recsys_hse.ipynb` | [`seminars/13_seminar_recsys_hse.ipynb`](materials/seminars/13_seminar_recsys_hse.ipynb) | 13 |
 | `recsys-sirius.ipynb` | [`seminars/13_recsys_sirius.ipynb`](materials/seminars/13_recsys_sirius.ipynb) | 13 |
 | `recsys-sirius-seminar.ipynb` | [`seminars/13_recsys_sirius_seminar.ipynb`](materials/seminars/13_recsys_sirius_seminar.ipynb) | 13 |
 | `Семинар_3_Свёрточные_сети,_аугментации,_transfer_learning.ipynb` | [`seminars/16_Семинар_3_CNN_аугментации_transfer.ipynb`](materials/seminars/16_Семинар_3_CNN_аугментации_transfer.ipynb) | 16 |
@@ -45,12 +45,12 @@
 | `Семинар_6_Эмбеддинги,_поиск_по_векторам_и_Grad_CAM.ipynb` | [`seminars/19_Семинар_6_Эмбеддинги_GradCAM.ipynb`](materials/seminars/19_Семинар_6_Эмбеддинги_GradCAM.ipynb) | 19 |
 | `rnn-international-airline-passengers.ipynb` | [`seminars/20_rnn_airline_passengers.ipynb`](materials/seminars/20_rnn_airline_passengers.ipynb) | 20 |
 | `simple_sentiment_analysis.ipynb` | [`seminars/21_simple_sentiment_analysis.ipynb`](materials/seminars/21_simple_sentiment_analysis.ipynb) | 21 |
-| `ДЗ_метрические_алгоритмы_Белкин.ipynb` | [`homework/03_ДЗ_метрические_алгоритмы.ipynb`](materials/homework/03_ДЗ_метрические_алгоритмы.ipynb) | 03 |
-| `ДЗ_2_Белкин.ipynb` | [`homework/04_ДЗ_2_линейные_модели.ipynb`](materials/homework/04_ДЗ_2_линейные_модели.ipynb) | 04 |
-| `Домашнее_задание_по_теме_Деревья_решений_Белкин.ipynb` | [`homework/07_ДЗ_Деревья_решений.ipynb`](materials/homework/07_ДЗ_Деревья_решений.ipynb) | 07 |
-| `Домашнее_задание_по_теме_«Ансамбли_алгоритмов»_Белкин.ipynb` | [`homework/08_ДЗ_Ансамбли.ipynb`](materials/homework/08_ДЗ_Ансамбли.ipynb) | 08 |
-| `ML_ДЗ_кластеризация_БелкинДС_.ipynb` | [`homework/11_ДЗ_Кластеризация.ipynb`](materials/homework/11_ДЗ_Кластеризация.ipynb) | 11 |
-| `ML_ДЗ_Генерация_и_отбор_признаков_БелкинДС_final_1.ipynb` | [`homework/12_ДЗ_Генерация_и_отбор_признаков.ipynb`](materials/homework/12_ДЗ_Генерация_и_отбор_признаков.ipynb) | 12 |
+| `ДЗ_метрические_алгоритмы.ipynb` | [`homework/03_ДЗ_метрические_алгоритмы.ipynb`](materials/homework/03_ДЗ_метрические_алгоритмы.ipynb) | 03 |
+| `ДЗ_2.ipynb` | [`homework/04_ДЗ_2_линейные_модели.ipynb`](materials/homework/04_ДЗ_2_линейные_модели.ipynb) | 04 |
+| `Домашнее_задание_по_теме_Деревья_решений.ipynb` | [`homework/07_ДЗ_Деревья_решений.ipynb`](materials/homework/07_ДЗ_Деревья_решений.ipynb) | 07 |
+| `Домашнее_задание_по_теме_«Ансамбли_алгоритмов».ipynb` | [`homework/08_ДЗ_Ансамбли.ipynb`](materials/homework/08_ДЗ_Ансамбли.ipynb) | 08 |
+| `ML_ДЗ_кластеризация.ipynb` | [`homework/11_ДЗ_Кластеризация.ipynb`](materials/homework/11_ДЗ_Кластеризация.ipynb) | 11 |
+| `ML_ДЗ_Генерация_и_отбор_признаков.ipynb` | [`homework/12_ДЗ_Генерация_и_отбор_признаков.ipynb`](materials/homework/12_ДЗ_Генерация_и_отбор_признаков.ipynb) | 12 |
 | `task_for_students.ipynb` | [`homework/09-15_DL_ДЗ_1_MLP_против_бустинга.ipynb`](materials/homework/09-15_DL_ДЗ_1_MLP_против_бустинга.ipynb) | 09, 15 |
 | `task_for_students_2.ipynb` | [`homework/17_DL_ДЗ_2_От_тензоров_к_UNet.ipynb`](materials/homework/17_DL_ДЗ_2_От_тензоров_к_UNet.ipynb) | 17 |
 | `task_for_students_3.ipynb` | [`homework/19_DL_ДЗ_3_Поиск_похожих_птиц.ipynb`](materials/homework/19_DL_ДЗ_3_Поиск_похожих_птиц.ipynb) | 19 |
@@ -107,6 +107,19 @@
 
 Кроме того, в каждой теме в разделе «Что почитать / посмотреть» собраны статьи, главы учебника ML Яндекса, блоги и документация.
 
+## Дополнительные темы (глава V)
+
+Темы 28–33 не опираются на лекции курса. Они написаны по материалам из списка ссылок и открытым источникам:
+
+| Тема | Основные источники |
+|---|---|
+| 28. Vision Transformer, self-supervised и мультимодальные модели | [DL2 HSE, неделя 7](https://github.com/thecrazymage/DL2_HSE/tree/main/week_07), [CS231n](https://cs231n.stanford.edu/), [курс NLP ШАД](https://github.com/yandexdataschool/nlp_course) (мультимодальные модели), статьи ViT, MAE, DINO, CLIP |
+| 29. Эффективное обучение и инференс | [DL2 HSE, неделя 2](https://github.com/thecrazymage/DL2_HSE/tree/main/week_02), [курс NLP ШАД](https://github.com/yandexdataschool/nlp_course) (Efficiency), [CS336](https://cs336.stanford.edu/), [учебник ML Яндекса: дистилляция](https://education.yandex.ru/handbook/ml/article/distillyaciya-znanij) |
+| 30. Интерпретируемость моделей | [Interpretable Machine Learning (К. Молнар)](https://christophm.github.io/interpretable-ml-book/), [курс NLP ШАД](https://github.com/yandexdataschool/nlp_course) (Interpretability) |
+| 31. Обучение с подкреплением | [учебник ML Яндекса](https://education.yandex.ru/handbook/ml/article/obuchenie-s-podkrepleniem), [DL2 HSE, недели 4–5](https://github.com/thecrazymage/DL2_HSE), Sutton & Barto |
+| 32. Графовые нейросети | [учебник ML Яндекса](https://education.yandex.ru/handbook/ml/article/grafovye-nejronnye-seti), Stanford CS224W, книга У. Гамильтона |
+| 33. Временные ряды | [учебник ML Яндекса](https://education.yandex.ru/handbook/ml/article/vremennye-ryady), [Forecasting: Principles and Practice](https://otexts.com/fpp3/) |
+
 ## Недоступные ссылки
 
 Четыре ссылки требуют входа в Google-аккаунт и в материалы не вошли:
@@ -122,6 +135,6 @@
 |---|---|---|
 | `0000.parquet` (70 МБ) | размер | рецензии Кинопоиска [blinoff/kinopoisk](https://huggingface.co/datasets/blinoff/kinopoisk); код тем 21 и 24 скачивает его сам |
 | `interactions_mts.csv`, `items.csv`, `users.csv` (52 + 32 + 30 МБ) | размер | данные соревнования МТС по рекомендательным системам (см. семинары темы 13 и [курс ODS × МТС](https://ods.ai/tracks/mts-recsys-df2020)) |
-| `AI-agents-mamaev.pdf` | лекция «Архитектура AI-агентов» использована в теме 26, файл в `materials/` не добавлен | исходная папка курса |
+| `AI-agents.pdf` | лекция «Архитектура AI-агентов» использована в теме 26, файл в `materials/` не добавлен | исходная папка курса |
 | `TarotAI — PRD и SRS (YandexGPT + Yandex Cloud).md` | не относится к курсу | — |
 | `.~lock.Лекция_08.pptx#` | служебный файл блокировки | — |

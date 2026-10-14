@@ -1,7 +1,7 @@
 # Машинное обучение: шпаргалка-курс
 
-Конспект курса по классическому машинному обучению и глубокому обучению в одном Jupyter-ноутбуке: 27 тем от метрик и деревьев до
-трансформеров, LLM-агентов и диффузионных моделей. Для каждой темы — краткая часть, подробный конспект с выводами формул, работающий код и
+Конспект курса по классическому машинному обучению и глубокому обучению в одном Jupyter-ноутбуке: 27 тем курса от метрик и деревьев до
+трансформеров, LLM-агентов и диффузионных моделей и 6 дополнительных тем. Для каждой темы — краткая часть, подробный конспект с выводами формул, работающий код и
 материалы курса (семинары, домашние задания, ссылки).
 
 **Начать: [`cheatsheet.ipynb`](cheatsheet.ipynb)**
@@ -32,69 +32,78 @@
 
 ```mermaid
 flowchart LR
-  subgraph ML["I. Классическое ML"]
-    T01["01 Введение, метрики регрессии"] --> T02["02 Метрики классификации"]
-    T02 --> T03["03 kNN"] --> T04["04 Линейные модели"]
-    T04 --> T05["05 Валидация"] --> T06["06 Bias–variance"]
-    T06 --> T07["07 Деревья"] --> T08["08 Бэггинг, лес"] --> T09["09 Бустинг"]
-    T05 --> T10["10 Аномалии"]
-    T05 --> T11["11 Кластеризация, снижение размерности"]
-    T09 --> T12["12 Признаки и их отбор"]
-    T11 --> T13["13 Рекомендательные системы"]
-  end
-  subgraph DL["II. Нейросети и зрение"]
-    T14["14 Нейросети, backprop"] --> T15["15 Обучение нейросетей"] --> T16["16 CNN"]
-    T16 --> T17["17 Сегментация"]
-    T16 --> T18["18 Детекция"]
-    T16 --> T19["19 Contrastive, эмбеддинги, Grad-CAM"]
-  end
-  subgraph NLP["III. Последовательности, NLP, LLM"]
-    T20["20 RNN, LSTM, GRU"] --> T22["22 Seq2seq, внимание"]
-    T21["21 Эмбеддинги слов, токенизация"] --> T22
-    T22 --> T23["23 Трансформер, BERT"] --> T24["24 Языковые модели, GPT"]
-    T24 --> T25["25 Дообучение LLM, PEFT, RLHF"] --> T26["26 Промптинг, RAG, агенты"]
-  end
-  subgraph GEN["IV. Генеративные модели"]
-    T27["27 VAE, GAN, диффузия"]
-  end
-  T04 --> T14
-  T15 --> T20
-  T19 --> T26
-  T17 --> T27
-  T13 -.-> T19
+  I["I. Классическое ML<br/>темы 01–13"] --> II["II. Нейросети и зрение<br/>темы 14–19"]
+  II --> III["III. NLP и LLM<br/>темы 20–26"]
+  II --> IV["IV. Генеративные модели<br/>тема 27"]
+  III --> IV
+  II --> V["V. Дополнительно<br/>темы 28–33"]
+  III --> V
 ```
+
+Начинать лучше с главы I по порядку. Главы II–IV опираются на линейные модели и обучение нейросетей (темы 04, 14, 15).
+Темы главы V независимы друг от друга — их можно читать в любом порядке, когда пройдены темы из колонки «Опирается на».
 
 ## Темы
 
-| № | Тема |
-|---|---|
-| 01 | [Введение в ML, метрики регрессии](topics/01_intro_regression_metrics/README.md) |
-| 02 | [Метрики классификации](topics/02_classification_metrics/README.md) |
-| 03 | [Метрические методы, kNN](topics/03_knn/README.md) |
-| 04 | [Линейные модели](topics/04_linear_models/README.md) |
-| 05 | [Валидация и выбор модели](topics/05_validation/README.md) |
-| 06 | [Bias–variance, сложность моделей](topics/06_bias_variance/README.md) |
-| 07 | [Решающие деревья](topics/07_decision_trees/README.md) |
-| 08 | [Бэггинг и случайный лес](topics/08_bagging_random_forest/README.md) |
-| 09 | [Градиентный бустинг](topics/09_gradient_boosting/README.md) |
-| 10 | [Обнаружение аномалий](topics/10_anomaly_detection/README.md) |
-| 11 | [Кластеризация и снижение размерности](topics/11_clustering_dim_reduction/README.md) |
-| 12 | [Генерация и отбор признаков](topics/12_feature_engineering_selection/README.md) |
-| 13 | [Рекомендательные системы](topics/13_recommender_systems/README.md) |
-| 14 | [Нейросети и backpropagation](topics/14_neural_networks_backprop/README.md) |
-| 15 | [Обучение нейросетей](topics/15_nn_training/README.md) |
-| 16 | [Свёрточные сети](topics/16_cnn/README.md) |
-| 17 | [Семантическая сегментация](topics/17_segmentation/README.md) |
-| 18 | [Детекция объектов](topics/18_detection/README.md) |
-| 19 | [Contrastive learning, векторный поиск, интерпретация](topics/19_contrastive_embeddings/README.md) |
-| 20 | [Рекуррентные сети](topics/20_rnn/README.md) |
-| 21 | [Представления текста и токенизация](topics/21_word_embeddings_tokenization/README.md) |
-| 22 | [Seq2seq и внимание](topics/22_seq2seq_attention/README.md) |
-| 23 | [Трансформер и BERT](topics/23_transformer_bert/README.md) |
-| 24 | [Языковые модели, декодирование, GPT](topics/24_language_models_gpt/README.md) |
-| 25 | [Дообучение LLM: SFT, LoRA, RLHF, DPO](topics/25_llm_finetuning_peft/README.md) |
-| 26 | [Промптинг, RAG, агенты](topics/26_llm_rag_agents/README.md) |
-| 27 | [Генеративные модели: VAE, GAN, диффузия](topics/27_generative_models/README.md) |
+### I. Классическое машинное обучение
+
+| № | Тема | Опирается на |
+|---|---|---|
+| 01 | [Введение в ML и метрики регрессии](topics/01_intro_regression_metrics/README.md) | — |
+| 02 | [Метрики классификации](topics/02_classification_metrics/README.md) | 01 |
+| 03 | [Метрические алгоритмы и kNN](topics/03_knn/README.md) | 01, 02 |
+| 04 | [Линейные модели: регрессия, регуляризация, логрег, SVM](topics/04_linear_models/README.md) | 01–03 |
+| 05 | [Контроль качества и выбор модели](topics/05_validation/README.md) | 02, 04 |
+| 06 | [Сложность моделей, bias–variance, переобучение](topics/06_bias_variance/README.md) | 04, 05 |
+| 07 | [Решающие деревья](topics/07_decision_trees/README.md) | 05, 06 |
+| 08 | [Ансамбли: бэггинг, случайный лес, стекинг](topics/08_bagging_random_forest/README.md) | 07 |
+| 09 | [Градиентный бустинг](topics/09_gradient_boosting/README.md) | 07, 08 |
+| 10 | [Обнаружение аномалий](topics/10_anomaly_detection/README.md) | 03, 05 |
+| 11 | [Кластеризация и снижение размерности](topics/11_clustering_dim_reduction/README.md) | 03, 04 |
+| 12 | [Генерация и отбор признаков](topics/12_feature_engineering_selection/README.md) | 04, 09 |
+| 13 | [Рекомендательные системы](topics/13_recommender_systems/README.md) | 04, 11 |
+
+### II. Нейросети и компьютерное зрение
+
+| № | Тема | Опирается на |
+|---|---|---|
+| 14 | [Нейронные сети и backpropagation](topics/14_neural_networks_backprop/README.md) | 04 |
+| 15 | [Обучение нейросетей: инициализация, оптимизаторы, регуляризация, нормализация](topics/15_nn_training/README.md) | 14 |
+| 16 | [Свёрточные сети (CNN)](topics/16_cnn/README.md) | 15 |
+| 17 | [Семантическая сегментация](topics/17_segmentation/README.md) | 16 |
+| 18 | [Детекция объектов](topics/18_detection/README.md) | 16, 17 |
+| 19 | [Contrastive learning, эмбеддинги, векторный поиск, интерпретация](topics/19_contrastive_embeddings/README.md) | 16 |
+
+### III. Последовательности, NLP и большие языковые модели
+
+| № | Тема | Опирается на |
+|---|---|---|
+| 20 | [Рекуррентные сети: RNN, LSTM, GRU](topics/20_rnn/README.md) | 15 |
+| 21 | [Представления текста: от мешка слов до word2vec, BPE и контекстных эмбеддингов](topics/21_word_embeddings_tokenization/README.md) | 11, 14 |
+| 22 | [Seq2seq и механизм внимания](topics/22_seq2seq_attention/README.md) | 20, 21 |
+| 23 | [Трансформер и BERT](topics/23_transformer_bert/README.md) | 22 |
+| 24 | [Языковые модели, декодирование, GPT](topics/24_language_models_gpt/README.md) | 23 |
+| 25 | [Дообучение LLM: SFT, PEFT (LoRA, QLoRA), выравнивание (RLHF, DPO)](topics/25_llm_finetuning_peft/README.md) | 24 |
+| 26 | [Работа с LLM: промптинг, RAG, агенты, запуск и оценка](topics/26_llm_rag_agents/README.md) | 19, 24, 25 |
+
+### IV. Генеративные модели
+
+| № | Тема | Опирается на |
+|---|---|---|
+| 27 | [Генеративные модели: автокодировщики, VAE, VQ-VAE, GAN, диффузия](topics/27_generative_models/README.md) | 16, 23 |
+
+### V. Дополнительно
+
+Темы за пределами лекций курса: по курсам из списка ссылок (DL2 HSE, NLP ШАД, CS231n, CS336), учебнику ML Яндекса и классическим учебникам.
+
+| № | Тема | Опирается на |
+|---|---|---|
+| 28 | [Vision Transformer, self-supervised и мультимодальные модели](topics/28_vit_ssl_multimodal/README.md) | 16, 19, 23 |
+| 29 | [Эффективное обучение и инференс: точность вычислений, память, квантизация, дистилляция](topics/29_efficient_training_inference/README.md) | 15, 24 |
+| 30 | [Интерпретируемость моделей: важность признаков, PDP, SHAP, LIME](topics/30_interpretability/README.md) | 07, 08, 12 |
+| 31 | [Обучение с подкреплением: от уравнения Беллмана до PPO и RLHF](topics/31_reinforcement_learning/README.md) | 14, 25 |
+| 32 | [Графовые нейросети](topics/32_graph_neural_networks/README.md) | 11, 13, 21 |
+| 33 | [Временные ряды: прогнозирование, валидация, модели](topics/33_time_series/README.md) | 05, 20 |
 
 ## Структура репозитория
 
@@ -106,21 +115,8 @@ materials/
   homework/             задания и решения домашних работ
   data/                 небольшие датасеты
 SOURCES.md              откуда что взято, внешние ссылки, что не вошло
-_config.yml, _toc.yml   настройки сайта (Jupyter Book)
-.github/workflows/      сборка сайта и подстановка ссылок
 requirements.txt        зависимости для локального запуска
 ```
-
-## Публикация на GitHub
-
-1. Запушить в ветку `main`.
-2. Включить сайт: **Settings → Pages → Build and deployment → Source: GitHub Actions**. Workflow `site` соберёт сайт
-   (Jupyter Book: оглавление, поиск, формулы) и опубликует его на `https://<владелец>.github.io/<репозиторий>/`.
-3. Workflow `links` сам подставит адрес репозитория в кнопки «Open in Colab» и «Сайт» (вместо заглушек в ссылках).
-
-GitHub Pages для приватного репозитория доступен только на платных тарифах.
-
-Локальная сборка сайта: `pip install "jupyter-book<2" sphinxcontrib-mermaid`, затем `jupyter-book build .` (результат в `_build/html`).
 
 ## О материалах
 

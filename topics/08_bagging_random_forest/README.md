@@ -43,10 +43,10 @@ $$
 **Почему это работает**
 
 - **Регрессия:** если ответы $T$ моделей независимы с одинаковыми средним и дисперсией $\sigma^2$, дисперсия
-  среднего — $\sigma^2/T$. С корреляцией $\rho$: $\rho\sigma^2 + \frac{1-\rho}{T}\sigma^2$ (вывод (см. раздел «1. Дисперсия среднего коррелированных моделей»)).
+  среднего — $\sigma^2/T$. С корреляцией $\rho$: $\rho\sigma^2 + \frac{1-\rho}{T}\sigma^2$ (вывод — см. раздел «1. Дисперсия среднего коррелированных моделей»).
 - **Классификация:** три независимых классификатора с ошибкой $p$ дают ошибку комитета $3p^2 - 2p^3$ — при малых
   $p$ очень мала, при $p = 0.3$ — 0.216. В общем случае (неравенство Хёфдинга) ошибка падает **экспоненциально**
-  с числом алгоритмов (вывод (см. раздел «2. Ошибка комитета большинства»)).
+  с числом алгоритмов (вывод — см. раздел «2. Ошибка комитета большинства»).
 - **Но это в теории:** на практике алгоритмы не независимы — учатся на одном таргете, решают одну задачу,
   часто это одна модель. Поэтому главное — **разнообразие**: пусть алгоритмы ошибаются, но **по-разному**.
 
@@ -194,7 +194,7 @@ rf.oob_decision_function_[:, 1]           # OOB-вероятности → мо�
 | **SHAP** | значения Шепли — вклад признака в прогноз каждого объекта | локальные и глобальные объяснения, знак эффекта | дороже; нужна библиотека `shap` |
 
 На практике: MDI — быстрая отбраковка явно неинформативных признаков; MDA — честная оценка вклада в качество;
-SHAP — детальный анализ и интерпретация (формулы (см. раздел «5. Важность признаков: MDI, MDA, SHAP»)).
+SHAP — детальный анализ и интерпретация (формулы — см. раздел «5. Важность признаков: MDI, MDA, SHAP»).
 
 ```python
 from sklearn.inspection import permutation_importance
@@ -659,7 +659,7 @@ Stacking test ROC-AUC = 0.951
 <summary><b>Что почитать / посмотреть</b></summary>
 
 - Учебник ML Яндекса: [Ансамбли в машинном обучении](https://education.yandex.ru/handbook/ml/article/ansambli-v-mashinnom-obuchenii)
-- Записи лекций из `ссылки.txt` (Яндекс.Диск): [«Ансамбли алгоритмов»](https://disk.yandex.ru/i/L3AAsMuZzIEZRQ), [«Случайный лес»](https://disk.yandex.ru/i/7CviTDWCeA_N2w)
+- Записи лекций (Яндекс Диск): [«Ансамбли алгоритмов»](https://disk.yandex.ru/i/L3AAsMuZzIEZRQ), [«Случайный лес»](https://disk.yandex.ru/i/7CviTDWCeA_N2w)
 - [sklearn: Ensembles](https://scikit-learn.org/stable/modules/ensemble.html) · [SHAP docs](https://shap.readthedocs.io/)
 - [Хабр (OTUS): Isolation Forest](https://habr.com/ru/companies/otus/articles/881086/)
 
@@ -694,7 +694,7 @@ Stacking test ROC-AUC = 0.951
 - **Лекции курса** (файлы в репозиторий не включены): Ансамбли · Случайный лес
 - **Семинары:** [Семинар: bagging, случайный лес](../../materials/seminars/08_Семинар_Ансамбли_bagging_RF.ipynb) ([Colab](https://colab.research.google.com/drive/1YDX47xzxOBWAZw6t-jaSh0CSJ6kZ5NIv)) · [Семинар: bagging, случайный лес (вторая версия)](../../materials/seminars/08_Семинар_Ансамбли_bagging_RF_v2.ipynb) ([Colab](https://colab.research.google.com/drive/10rxToYG1HkCvaJlUzzP2NSOut0avirY0))
 - **Домашние задания:** [ДЗ: ансамбли (решение)](../../materials/homework/08_ДЗ_Ансамбли.ipynb)
-- **Видео и внешние курсы:** [ Видео: «Ансамбли»](https://disk.yandex.ru/i/L3AAsMuZzIEZRQ) · [ Видео: «Случайный лес»](https://disk.yandex.ru/i/7CviTDWCeA_N2w)
+- **Видео и внешние курсы:** [Видео: «Ансамбли»](https://disk.yandex.ru/i/L3AAsMuZzIEZRQ) · [Видео: «Случайный лес»](https://disk.yandex.ru/i/7CviTDWCeA_N2w)
 
 </details>
 
