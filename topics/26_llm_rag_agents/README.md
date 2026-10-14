@@ -1,12 +1,40 @@
-# 26. Работа с LLM: промптинг, RAG, агенты, локальный запуск, оценка
+# 26. Работа с LLM: промптинг, RAG, агенты, запуск и оценка
 
-[← Шпаргалка](../../cheatsheet.ipynb) · [Карта курса](../../README.md) · [🔬 Выводы и математика →](deep.md) · [← 25. Дообучение LLM и PEFT](../25_llm_finetuning_peft/README.md) · [27. Генеративные модели →](../27_generative_models/README.md)
+[Шпаргалка (ноутбук)](../../cheatsheet.ipynb) · [Оглавление курса](../../README.md)
 
----
+**Суть.** Готовую instruct-LLM чаще не дообучают, а **правильно используют**: **промптинг** (роль, инструкция, формат, few-shot,
+chain-of-thought), **RAG** — найти релевантные фрагменты своей базы знаний (BM25 / плотные эмбеддинги / гибрид + реранкер) и
+дать их модели в контексте, чтобы отвечать по фактам и со ссылками; **агенты** — LLM в цикле, которая сама вызывает
+**инструменты** (поиск, код, API) и видит их результаты, пока не решит задачу. Обвязка вокруг модели (harness) — инструменты,
+знания, наблюдения, права — важна не меньше самой модели. Локально модели запускают квантованными (GGUF, llama.cpp).
+Оценка — по отдельным частям: качество поиска (recall@k), верность ответа контексту (faithfulness), конечный результат.
 
-## Часть A. Промптинг
+| Термин | Определение |
+|---|---|
+| System prompt | инструкция роли и правил, идёт первой в контексте |
+| Few-shot / CoT | примеры «вход → выход» в промпте / просьба рассуждать по шагам перед ответом |
+| Галлюцинация | уверенный, но выдуманный ответ; RAG и требование ссылок уменьшают их |
+| Чанкинг | нарезка документов на фрагменты (по структуре, 200–1000 токенов, с перекрытием) |
+| BM25 | лексический поиск: TF с насыщением × IDF × нормировка длины |
+| Bi-encoder / cross-encoder | эмбеддинги запроса и документа отдельно (быстро, ANN) / пара целиком (точно, для реранкинга) |
+| RRF | гибрид рангов: $\sum_m \frac{1}{k+\mathrm{rank}_m(d)}$, $k=60$ |
+| Tool calling | модель выдаёт структурированный вызов (имя + JSON-аргументы), код исполняет и возвращает результат |
+| Агентный цикл | `while`: LLM → вызовы инструментов → результаты в контекст → … пока модель не ответит без вызовов |
+| GGUF / квантование | формат llama.cpp; веса в 4–8 бит (Q4_K_M ≈ 4.8 бита на вес) для CPU |
 
-### 1. Base и instruct — снова
+$$
+\mathrm{BM25}(q,d)=\sum_{w\in q}\mathrm{IDF}(w)\,\frac{f_{w,d}\,(k_1+1)}{f_{w,d}+k_1\big(1-b+b\frac{\lvert d\rvert}{\mathrm{avgdl}}\big)},\qquad
+\mathrm{RRF}(d)=\sum_{m}\frac{1}{60+\mathrm{rank}_m(d)}
+$$
+
+## Конспект
+
+Разделы раскрываются по клику.
+
+**Часть A. Промптинг**
+
+<details>
+<summary><b>1. Base и instruct — снова</b></summary>
 
 Семинар 11 начинается с того же опыта, что и семинар 10: SmolLM2-135M **base** на вопрос о назначении списка `C` в функции биномиального
 коэффициента «продолжает текст» и галлюцинирует (уходит во флуд про факториалы) — она не решает задачу, а продолжает текст наиболее
@@ -16,7 +44,10 @@
 То же различие есть у эмбеддеров: старые (E5 v2) требуют жёстких префиксов `query:` / `passage:`, новые instruction-эмбеддеры принимают
 описание задачи текстом («найди ответ на вопрос», «найди дубликат», «найди код»).
 
-### 2. Анатомия промпта
+</details>
+
+<details>
+<summary><b>2. Анатомия промпта</b></summary>
 
 1. **Роль и цель** (system): кто модель и что важно («ты аккуратный ассистент по коду; приоритет — корректность»).
 2. **Задача**: что сделать, конкретно и однозначно.
@@ -35,10 +66,13 @@
 | Структурированный вывод | JSON-схема, constrained decoding (грамматика ограничивает токены) | интеграция с кодом |
 | Декомпозиция / цепочки | разбить задачу на шаги-промпты | сложные пайплайны |
 
-Современные «рассуждающие» модели обучены думать перед ответом (RL на проверяемых задачах, [тема 25](../25_llm_finetuning_peft/README.md#11-dpo-и-другие-методы-без-rl)),
+Современные «рассуждающие» модели обучены думать перед ответом (RL на проверяемых задачах, [тема 25](../25_llm_finetuning_peft/README.md)),
 и явный CoT для них менее нужен.
 
-### 3. Ограничения LLM, которые промпт не исправит
+</details>
+
+<details>
+<summary><b>3. Ограничения LLM, которые промпт не исправит</b></summary>
 
 - **Галлюцинации** — уверенно выдуманные факты и ссылки (L1: «LoRA (Low-Rank Additive Noise Autoencoder)» у модели 1.5B без контекста).
 - **Срез знаний** — модель не знает событий после обучения и ваших внутренних документов.
@@ -48,11 +82,12 @@
 
 Ответы на первые два ограничения — RAG и инструменты.
 
----
+</details>
 
-## Часть B. Retrieval-Augmented Generation
+**Часть B. Retrieval-Augmented Generation**
 
-### 4. Пайплайн
+<details>
+<summary><b>4. Пайплайн</b></summary>
 
 `query → (переписать запрос) → retrieval → (реранкинг) → контекст в промпт → generation → (проверка, цитаты)`
 
@@ -62,18 +97,24 @@
 Плюсы: актуальные и приватные знания без дообучения; проверяемость (цитаты); меньше галлюцинаций; обновление базы — просто
 переиндексация. Минусы: качество ограничено поиском; длинный контекст дороже; модель может проигнорировать или неверно пересказать контекст.
 
-### 5. Чанкинг
+</details>
+
+<details>
+<summary><b>5. Чанкинг</b></summary>
 
 - По структуре документа (заголовки, абзацы, функции кода) лучше, чем по фиксированному числу символов.
 - Размер: 200–1000 токенов; маленькие — точный поиск, но мало контекста; большие — наоборот. Перекрытие 10–20%.
 - `RecursiveCharacterTextSplitter` (семинар: `chunk_size=100`, `chunk_overlap=20` → 7 документов дали 12 чанков) режет по `\n\n`, `\n`, пробелам.
 - Приёмы: заголовок документа/раздела в каждом чанке; «маленький чанк для поиска — большой для контекста» (parent document); метаданные (дата, источник) для фильтров.
 
-### 6. Поиск: лексический, плотный, гибрид
+</details>
+
+<details>
+<summary><b>6. Поиск: лексический, плотный, гибрид</b></summary>
 
 | Метод | Как | Сильные стороны | Слабые |
 |---|---|---|---|
-| **BM25** | TF с насыщением × IDF × нормировка длины ([deep §1](deep.md#1-bm25-из-tf-idf)) | редкие термины, коды, имена; без обучения | синонимы, перефразы |
+| **BM25** | TF с насыщением × IDF × нормировка длины (см. раздел «1. BM25 из TF-IDF») | редкие термины, коды, имена; без обучения | синонимы, перефразы |
 | **Плотный (bi-encoder)** | $\cos(E(q), E(d))$, ANN-индекс (HNSW, [тема 19](../19_contrastive_embeddings/README.md)) | смысл, перефразы, мультиязычность | редкие термины; зависит от эмбеддера |
 | **Гибрид** | RRF или взвешенная сумма нормированных скоров | лучшее из двух | — |
 | **Реранкер (cross-encoder)** | пара (запрос, чанк) целиком через BERT → скор; на топ-50 | точность | дорого, только для короткого списка |
@@ -89,7 +130,10 @@ L1-пример (494 чанка из конспектов всех 27 тем ш�
 **Улучшения запроса:** переписывание (LLM формулирует поисковый запрос из диалога), multi-query, **HyDE** (сгенерировать гипотетический
 ответ и искать по нему), декомпозиция сложного вопроса.
 
-### 7. Генерация с контекстом
+</details>
+
+<details>
+<summary><b>7. Генерация с контекстом</b></summary>
 
 ```python
 system = ("Отвечай кратко и только по контексту. Если в контексте нет ответа — скажи, что не знаешь. "
@@ -101,7 +145,10 @@ answer = chat([{"role": "system", "content": system}, {"role": "user", "content"
 L1-пример (Qwen2.5-1.5B-Instruct): без контекста модель расшифровывает LoRA как «Low-Rank Additive Noise Autoencoder» и придумывает
 причины; с найденными фрагментами конспекта отвечает по существу: «чтобы модель не была испорчена… градиенты по B ненулевые».
 
-### 8. Семинар 11: RAG на LangChain
+</details>
+
+<details>
+<summary><b>8. Семинар 11: RAG на LangChain</b></summary>
 
 ```python
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -129,7 +176,10 @@ result = qa_chain.invoke({"input": "Что такое машинное обуч�
 - В LangChain много устаревающих модулей и несовместимостей версий — для простых пайплайнов часто проще 30 строк своего кода (как в L1).
 - Задания семинара: добавить реранкер; несколько ролей через разные system prompts; простой агент «найди документы → суммаризируй».
 
-### 9. Оценка RAG
+</details>
+
+<details>
+<summary><b>9. Оценка RAG</b></summary>
 
 Оценивать **по частям**, иначе непонятно, что чинить:
 
@@ -142,11 +192,12 @@ result = qa_chain.invoke({"input": "Что такое машинное обуч�
 
 Фреймворки: RAGAS, DeepEval, TruLens. Набор вопросов собирают из реальных логов + синтетически (LLM генерирует вопросы по чанкам).
 
----
+</details>
 
-## Часть C. Агенты
+**Часть C. Агенты**
 
-### 10. Определения
+<details>
+<summary><b>10. Определения</b></summary>
 
 **Агент** — LLM, **автономно использующая инструменты в замкнутом цикле**: модель решает, что делать, обвязка исполняет и возвращает
 результат, и так до готовности. «Модель и есть агент»; разработка агентов — это либо обучение модели, либо построение обвязки
@@ -162,7 +213,10 @@ $$
 - **Action:** команды CLI, вызовы API, действия в интерфейсе.
 - **Permissions:** песочница, подтверждения опасных действий, границы доверия.
 
-### 11. Tool calling и агентный цикл
+</details>
+
+<details>
+<summary><b>11. Tool calling и агентный цикл</b></summary>
 
 Инструмент описывается **именем, описанием и JSON-схемой аргументов**; модель, обученная на вызовах функций, вместо текста выдаёт
 структурированный вызов. Цикл:
@@ -187,7 +241,10 @@ def agent_loop(messages, tools, handlers, max_turns=20):
 в docstring), после чего результат 7 077 888… но модель пересказывает его как «70 778 880». Мораль: обвязка должна валидировать входы
 инструментов, а важные значения брать из результатов инструментов, а не из пересказа модели.
 
-### 12. Эволюция обвязки (лекция «Архитектура AI-агентов», А. Мамаев)
+</details>
+
+<details>
+<summary><b>12. Эволюция обвязки (лекция «Архитектура AI-агентов», А. Мамаев)</b></summary>
 
 Пошаговое построение по учебному репозиторию shareAI-lab (12 шагов; на каждом добавляется **один** механизм, `agent_loop` не меняется):
 
@@ -219,7 +276,10 @@ def agent_loop(messages, tools, handlers, max_turns=20):
 - **Оценка по конечному состоянию**, а не по шагам: агенты приходят к результату разными путями.
 - Обновление агентов «на лету» — постепенное переключение трафика между версиями (stateful-системы нельзя просто перезапустить).
 
-### 13. Безопасность агентов
+</details>
+
+<details>
+<summary><b>13. Безопасность агентов</b></summary>
 
 - **Prompt injection:** содержимое страниц, писем, файлов, результатов инструментов — **данные, не команды**; модель должна не исполнять
   найденные там инструкции. Разделяйте каналы, помечайте недоверенный текст.
@@ -228,11 +288,12 @@ def agent_loop(messages, tools, handlers, max_turns=20):
 - Протоколы подключения инструментов: function calling в API, **MCP** (Model Context Protocol) — стандарт подключения внешних
   инструментов и данных к агентам.
 
----
+</details>
 
-## Часть D. Локальный запуск
+**Часть D. Локальный запуск**
 
-### 14. Квантование и llama.cpp
+<details>
+<summary><b>14. Квантование и llama.cpp</b></summary>
 
 `llama-cpp-python` — обёртка над llama.cpp: быстрый инференс на CPU (и частичная выгрузка слоёв на GPU), формат **GGUF** с квантованием,
 минимум зависимостей, OpenAI-совместимый сервер. Подходит для ноутбука, сервера без GPU, закрытого контура.
@@ -250,7 +311,10 @@ llm.create_chat_completion(messages=[{"role": "user", "content": "Что так�
 деградация). Память ≈ параметры × биты / 8 + KV-кэш. Другие варианты: Ollama (удобная обёртка над llama.cpp), **vLLM** (сервер с
 PagedAttention и непрерывным батчингом — для высокой нагрузки на GPU), TGI, SGLang.
 
-### Чек-лист
+</details>
+
+<details>
+<summary><b>Чек-лист</b></summary>
 
 - [ ] Сначала промпт и few-shot; RAG — для знаний; дообучение — для формата/поведения.
 - [ ] Чанки по структуре + метаданные; гибридный поиск + реранкер; мерить recall@k на своих вопросах.
@@ -259,28 +323,424 @@ PagedAttention и непрерывным батчингом — для высо�
 - [ ] Агент: валидировать аргументы инструментов, ограничить права и число шагов, логировать; содержимое инструментов — данные, не команды.
 - [ ] Оценка по частям: поиск, faithfulness, конечный результат.
 
----
+</details>
 
-## Что почитать / посмотреть
+**Математика и выводы**
 
-- 📘 [yandexdataschool/nlp_course](https://github.com/yandexdataschool/nlp_course): week06 — Prompting & In-Context Learning, week09 — RAG, week10 — AI Agents, week13 — Building LLM Systems, week14 — AI Agents in Production
-- 📘 [DL2 HSE, неделя 4: RLHF and LLM Agents](https://github.com/thecrazymage/DL2_HSE/tree/main/week_04) · [неделя 5: Agentic RL](https://github.com/thecrazymage/DL2_HSE/tree/main/week_05)
-- 📄 Руководства: [Prompt Engineering Guide](https://www.promptingguide.ai/) · [Lilian Weng — Prompt Engineering](https://lilianweng.github.io/posts/2023-03-15-prompt-engineering/) · [Lilian Weng — LLM Powered Autonomous Agents](https://lilianweng.github.io/posts/2023-06-23-agent/) · [Chip Huyen — Agents](https://huyenchip.com/2025/01/07/agents.html) · [Model Context Protocol](https://modelcontextprotocol.io/)
-- 📄 Инструменты: [LangChain RAG](https://python.langchain.com/docs/tutorials/rag/) · [llama-cpp-python](https://github.com/abetlen/llama-cpp-python) · [Ollama](https://ollama.com/) · [vLLM](https://github.com/vllm-project/vllm) · [Chroma](https://docs.trychroma.com/) · [FAISS](https://github.com/facebookresearch/faiss) · [RAGAS](https://docs.ragas.io/) · [MTEB leaderboard](https://huggingface.co/spaces/mteb/leaderboard) · [🤗 Chat templates и tool use](https://huggingface.co/docs/transformers/chat_extras)
-- 📄 Статьи: [RAG (Lewis et al.)](https://arxiv.org/abs/2005.11401) · [Dense Passage Retrieval](https://arxiv.org/abs/2004.04906) · [E5](https://arxiv.org/abs/2212.03533) · [BM25 (Robertson & Zaragoza)](https://www.staff.city.ac.uk/~sbrp622/papers/foundations_bm25_review.pdf) · [RRF](https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf) · [MMR](https://www.cs.cmu.edu/~jgc/publication/The_Use_MMR_Diversity_Based_LTMIR_1998.pdf) · [HyDE](https://arxiv.org/abs/2212.10496) · [Lost in the Middle](https://arxiv.org/abs/2307.03172) · [Chain-of-Thought](https://arxiv.org/abs/2201.11903) · [Self-Consistency](https://arxiv.org/abs/2203.11171) · [ReAct](https://arxiv.org/abs/2210.03629) · [Toolformer](https://arxiv.org/abs/2302.04761) · [RAGAS](https://arxiv.org/abs/2309.15217) · [Judging LLM-as-a-Judge](https://arxiv.org/abs/2306.05685) · [Prompt injection (Greshake et al.)](https://arxiv.org/abs/2302.12173)
+<details>
+<summary><b>1. BM25 из TF-IDF</b></summary>
 
-## Источники курса
+TF-IDF ([тема 21](../21_word_embeddings_tokenization/README.md)) растёт **линейно** с числом вхождений слова, и
+длинные документы выигрывают просто за счёт длины. BM25 (Robertson et al.) исправляет оба недостатка:
+
+$$
+\mathrm{BM25}(q, d) = \sum_{w\in q}\mathrm{IDF}(w)\cdot\frac{f_{w,d}\,(k_1 + 1)}{f_{w,d} + k_1\big(1 - b + b\,\frac{\lvert d\rvert}{\mathrm{avgdl}}\big)},\qquad
+\mathrm{IDF}(w) = \ln\Big(1 + \frac{N - n_w + 0.5}{n_w + 0.5}\Big).
+$$
+
+- **Насыщение по TF:** при $f\to\infty$ дробь стремится к $k_1 + 1$; $k_1\in[1.2, 2]$ задаёт, как быстро. Пятое упоминание слова почти ничего не
+  добавляет — в отличие от TF-IDF.
+- **Нормировка длины:** $b\in[0, 1]$ (обычно 0.75) — насколько штрафовать длинные документы; $b = 0$ — без нормировки.
+- **IDF** выведен из вероятностной модели релевантности (Robertson–Spärck Jones) без информации о релевантных документах:
+  $\ln\frac{N - n_w + 0.5}{n_w + 0.5}$ — логарифм шансов встретить слово в нерелевантном vs релевантном документе; «+1» внутри логарифма
+  (вариант Lucene) не даёт отрицательных весов у слов, встречающихся более чем в половине документов.
+- Форма $\frac{f(k_1 + 1)}{f + K}$ — аппроксимация модели «2-Пуассона» (слово в документе либо «по теме», либо случайно).
+
+</details>
+
+<details>
+<summary><b>2. Плотный поиск: как обучают bi-encoder</b></summary>
+
+Запрос и документ кодируются отдельно: $s(q, d) = \cos(E_q(q), E_d(d))$ (или скалярное произведение) — документы индексируются заранее, поиск —
+ближайшие соседи (HNSW/IVF-PQ, [тема 19](../19_contrastive_embeddings/README.md)). Обучение — **InfoNCE** с
+негативами из батча (DPR, E5):
+
+$$
+\mathcal L = -\log\frac{e^{s(q, d^{+})/\tau}}{e^{s(q, d^{+})/\tau} + \sum_{j}e^{s(q, d_j^{-})/\tau}} .
+$$
+
+Чем больше батч, тем больше негативов (E5 — десятки тысяч); **hard negatives** (похожие по BM25, но нерелевантные) дают основной прирост.
+Префиксы `query:`/`passage:` у E5 — часть обучения: модель учит **асимметричную** задачу «короткий вопрос ↔ длинный абзац».
+
+**Cross-encoder** считает $s(q, d) = f([q; d])$ одним трансформером с полным вниманием между запросом и документом — точнее (видит
+взаимодействия слов), но $O(N)$ проходов на запрос, поэтому только для реранкинга топ-$k$. Компромисс — late interaction (ColBERT):
+$s(q, d) = \sum_i\max_j\langle q_i, d_j\rangle$ по токенным эмбеддингам.
+
+</details>
+
+<details>
+<summary><b>3. Слияние рангов: RRF</b></summary>
+
+Скоры BM25 и косинусы несравнимы по шкале. **Reciprocal Rank Fusion** использует только ранги:
+
+$$
+\mathrm{RRF}(d) = \sum_{m\in\text{методы}}\frac{1}{k + \mathrm{rank}_m(d)},\qquad k = 60 .
+$$
+
+Не требует нормировки и обучения; $k$ сглаживает вклад верхних позиций (при $k = 0$ первое место одного метода доминирует: $1$ против $1/2$;
+при $k = 60$ — $1/61$ против $1/62$, и важнее быть высоко **в обоих** списках). Документ, найденный только одним методом, всё равно получает
+вклад — гибрид не теряет «уникальные» находки каждого.
+
+</details>
+
+<details>
+<summary><b>4. MMR: релевантность против дубликатов</b></summary>
+
+Жадный выбор $S$ из кандидатов $R$:
+
+$$
+d^{*} = \arg\max_{d\in R\setminus S}\Big[\lambda\,\mathrm{sim}(q, d) - (1 - \lambda)\max_{d'\in S}\mathrm{sim}(d, d')\Big].
+$$
+
+$\lambda = 1$ — обычный топ-$k$; $\lambda < 1$ штрафует похожесть на уже выбранное — в контекст не попадают пять почти одинаковых чанков
+(в LangChain: `search_type="mmr"`, `fetch_k` кандидатов → `k` итоговых).
+
+</details>
+
+<details>
+<summary><b>5. Метрики поиска</b></summary>
+
+Для запроса с множеством релевантных $\mathcal R$ и выдачей $d_1, d_2, \ldots$:
+
+$$
+\mathrm{Recall@}k = \frac{\lvert\lbrace d_1..d_k\rbrace\cap\mathcal R\rvert}{\lvert\mathcal R\rvert},\qquad
+\mathrm{MRR} = \frac1{\lvert Q\rvert}\sum_q\frac{1}{\mathrm{rank}_q},\qquad
+\mathrm{nDCG@}k = \frac{1}{\mathrm{IDCG@}k}\sum_{i=1}^{k}\frac{2^{\mathrm{rel}_i} - 1}{\log_2(i + 1)} .
+$$
+
+hit@k — частный случай: есть ли хоть один релевантный в топ-$k$. Для RAG важнее всего **recall@k** при том $k$, который реально попадает в
+промпт: генератор не может использовать то, чего нет в контексте. Те же метрики ранжирования — в рекомендациях ([тема 13](../13_recommender_systems/README.md)).
+
+</details>
+
+<details>
+<summary><b>6. Стоимость агентного цикла и кэш префикса</b></summary>
+
+Пусть на ходе $i$ контекст $L_i = L_0 + i\Delta$ (каждый ход добавляет $\Delta$ токенов: ответ модели + результаты инструментов). Без
+кэширования каждый вызов обрабатывает весь контекст заново:
+
+$$
+C_{\text{без кэша}} = \sum_{i=0}^{n-1}L_i = nL_0 + \Delta\,\frac{n(n - 1)}{2} = O(n^2).
+$$
+
+Если префикс не меняется (новое только дописывается в конец), его KV-представления переиспользуются: заново считаются лишь $\Delta$ новых
+токенов, и вычисления растут как $O(n\Delta)$ — **линейно** (у провайдеров — кэшированные токены дешевле в разы). Отсюда правила:
+не вставлять новое в середину, не менять system prompt по ходу диалога, сжимать историю редко и целиком (суммари заменяет старую часть
+одним блоком). Ту же квадратичность лечат субагенты: их промежуточные шаги не попадают в контекст родителя.
+
+</details>
+
+<details>
+<summary><b>7. Self-consistency как маргинализация</b></summary>
+
+CoT-ответ — это пара (рассуждение $r$, ответ $a$). Нам нужен $\arg\max_a p(a\mid x) = \arg\max_a\sum_rp(r, a\mid x)$, а greedy-декодирование
+даёт лишь моду совместного распределения $\arg\max_{r,a}p(r, a\mid x)$. Сэмплируем $m$ рассуждений $(r_j, a_j)\sim p(\cdot\mid x)$ и берём
+голосование: $\hat a = \arg\max_a\frac1m\sum_j[a_j = a]$ — Монте-Карло-оценка маргинали $p(a\mid x)$. Разные правильные пути сходятся к одному
+ответу, ошибочные — разбегаются; цена — $m$ генераций.
+
+</details>
+
+<details>
+<summary><b>8. Квантование для локального запуска</b></summary>
+
+Память модели $\approx N\cdot\frac{\text{бит на вес}}{8}$ + KV-кэш ([тема 24](../24_language_models_gpt/README.md)) + буферы.
+Для 0.5B: fp16 — 1 ГБ, Q4_K_M — ~0.4–0.5 ГБ (семинар: 0.46 ГБ).
+
+**K-quants llama.cpp:** веса группируются в суперблоки по 256, внутри — блоки по 32 со своими 6-битными шкалами и минимумами, у
+суперблока — fp16-шкала; `Q4_K` ≈ 4.5 бита на вес. Суффиксы `_S/_M/_L` — смеси: «важные» тензоры (например, `attn_v`, `ffn_down`) квантуются
+точнее, поэтому `Q4_K_M` ≈ 4.8 бита. Ошибка квантования блока $\approx\frac{\Delta^2}{12}$ на вес при шаге $\Delta = \frac{\max - \min}{2^b - 1}$ — каждые
+минус 1 бит увеличивают шаг вдвое и MSE в 4 раза; поэтому ниже 4 бит качество падает быстро, особенно у маленьких моделей.
+
+</details>
+
+<details>
+<summary><b>Вопросы с собеседований</b></summary>
+
+Сначала ответьте сами, потом раскройте ответ.
+
+<details>
+<summary>RAG или дообучение?</summary>
+
+знания, которые меняются или должны цитироваться, — RAG; формат/стиль/поведение — дообучение (тема 25).
+
+</details>
+
+<details>
+<summary>Почему плотный поиск может проиграть BM25?</summary>
+
+редкие термины, коды, имена; неподходящий эмбеддер или формат запроса (e5 обучен с префиксами `query:`/`passage:`); поэтому гибрид + реранкер.
+
+</details>
+
+<details>
+<summary>Самая частая причина плохого RAG?</summary>
+
+поиск: нужного чанка нет в топ-k. Сначала мерить recall@k, потом генерацию.
+
+</details>
+
+<details>
+<summary>Как бороться с галлюцинациями?</summary>
+
+контекст + инструкция «не знаешь — скажи», требование цитат, проверка ответа по источникам (faithfulness), низкая температура.
+
+</details>
+
+<details>
+<summary>Prompt injection?</summary>
+
+текст из документов или инструментов — **данные, а не команды**: разделять роли, ограничивать права инструментов, подтверждать опасные действия.
+
+</details>
+
+<details>
+<summary>Чем агент отличается от RAG-цепочки?</summary>
+
+цепочка фиксирована кодом; агент сам выбирает шаги и инструменты в цикле — гибче, но дороже и менее предсказуем.
+
+</details>
+
+<details>
+<summary>Почему агенту нужна «упряжь» (harness)?</summary>
+
+модель только решает; исполняют, ограничивают и проверяют инструменты вокруг неё. Ошибки часто в инструментах (пример с `^`).
+
+</details>
+
+<details>
+<summary>Можно ли верить пересказу результата инструмента?</summary>
+
+нет: в примере калькулятор вернул 7 077 888, а модель написала «70 778 880». Числа и факты в финальном ответе проверяют кодом или берут прямо из результата инструмента.
+
+</details>
+
+<details>
+<summary>Как экономить контекст и деньги?</summary>
+
+стабильный префикс промпта (кэширование), сжатие истории, знания по запросу (а не всё в system prompt), субагенты с чистым контекстом.
+
+</details>
+
+</details>
+
+<details>
+<summary><b>Дополнительно: детали</b></summary>
+
+- **Промптинг:** роль + задача + контекст + формат + ограничения; few-shot примеры (порядок и баланс меток влияют); CoT («думай по шагам»), self-consistency (несколько рассуждений и голосование), ReAct (рассуждение ↔ действие); структурированный вывод (JSON-схема, constrained decoding).
+- **RAG-пайплайн (семинар 11):** документы → `RecursiveCharacterTextSplitter` (chunk 100, overlap 20) → эмбеддинги `paraphrase-multilingual-MiniLM-L12-v2` → Chroma → retriever (similarity k=3, порог, **MMR** для разнообразия) → промпт «используй контекст, иначе скажи, что не знаешь» → LLM. Модели: GPT-2 (бессмыслица — не instruct и не русская) и Qwen2.5-0.5B-Instruct. Улучшения: реранкер, query rewriting, HyDE, метаданные и фильтры.
+- **Локальный запуск:** `llama-cpp-python` + GGUF (`Qwen2.5-0.5B-Instruct q4_k_m` — 0.46 ГБ), `n_ctx`, `n_threads`, `n_gpu_layers`; OpenAI-совместимый API; также Ollama, vLLM (сервер с PagedAttention).
+- **Архитектура агентов (лекция):** «модель и есть агент», harness = инструменты + знания + наблюдения + действия + права. Эволюция: цикл + bash → таблица инструментов с песочницей путей → план (todo) и субагенты с чистым контекстом → навыки по запросу и сжатие контекста → граф задач на диске и фоновые задачи → команды агентов с почтовыми ящиками, протоколами, автономией и изоляцией рабочих каталогов.
+- **Оценка:** retrieval — recall@k, MRR; генерация — faithfulness, answer relevance (RAGAS), LLM-as-a-judge с рубрикой; агенты — по конечному состоянию, а не по шагам.
+
+</details>
+
+<details>
+<summary><b>Примеры кода (с результатами запуска)</b></summary>
+
+Запустить их можно в ноутбуке [`cheatsheet.ipynb`](../../cheatsheet.ipynb).
+
+```python
+# RAG по этой шпаргалке: чанки из topics/*/README.md, поиск BM25 vs плотные эмбеддинги (e5) vs гибрид. Метрика — hit@3
+import os, re, glob, math, json, warnings, numpy as np, torch
+from collections import Counter
+warnings.filterwarnings("ignore")
+chunks = []                                                                  # (номер темы, текст)
+for path in sorted(glob.glob(os.path.join("topics", "*", "README.md"))):
+    topic, text = os.path.basename(os.path.dirname(path))[:2], open(path, encoding="utf-8").read()
+    for sec in re.split(r"\n(?=#{2,3} )", re.sub(r"```.*?```", " ", text, flags=re.S)):   # чанк = раздел конспекта
+        for i in range(0, len(sec), 1200):
+            if len(sec[i:i + 1500]) > 200: chunks.append((topic, sec[i:i + 1500]))
+if not chunks: print("папка topics/ не найдена — запустите ноутбук из корня репозитория")
+print(f"{len(chunks)} чанков из {len(set(t for t, _ in chunks))} тем")
+
+tokenize = lambda s: re.findall(r"[а-яёa-z0-9]+", s.lower())
+docs = [tokenize(c) for _, c in chunks]; tfs = [Counter(d) for d in docs]
+df = Counter(w for d in docs for w in set(d)); N, avgdl = len(docs), np.mean([len(d) for d in docs])
+def bm25(q, k1=1.5, b=0.75):
+    s = np.zeros(N)
+    for w in set(tokenize(q)) & df.keys():
+        idf = math.log(1 + (N - df[w] + 0.5) / (df[w] + 0.5))
+        for i, tf in enumerate(tfs):
+            if w in tf: s[i] += idf * tf[w] * (k1 + 1) / (tf[w] + k1 * (1 - b + b * len(docs[i]) / avgdl))
+    return s
+
+questions = [("Почему в рекуррентных сетях затухают градиенты?", "20"), ("Как работает Byte Pair Encoding?", "21"),
+             ("Зачем делить скалярное произведение на корень из размерности?", "22|23"), ("Зачем в LoRA B инициализируют нулём?", "25"),
+             ("Как выбрать число соседей k?", "03"), ("Что показывает ROC-AUC?", "02"), ("Зачем нужен warm-up learning rate?", "23"),
+             ("Чем бэггинг отличается от бустинга?", "08|09"), ("Как считается IoU?", "17|18"), ("Что такое перплексия?", "22|24"),
+             ("Как работает teacher forcing?", "20|22"), ("Что такое кросс-валидация и утечка данных?", "05"),
+             ("Как устроен случайный лес?", "08"), ("Что такое негативное сэмплирование в word2vec?", "21"),
+             ("Что такое DPO?", "25"), ("Как устроен U-Net?", "17"), ("Зачем нужна регуляризация L1 и L2?", "04"),
+             ("Как найти аномалии в данных?", "10")]
+hit3 = lambda scores, ans: any(chunks[i][0] in ans.split("|") for i in np.argsort(-scores)[:3])
+def rrf(*score_lists, k=60):
+    r = np.zeros(N)
+    for s in score_lists: r[np.argsort(-s)] += 1 / (k + np.arange(1, N + 1))
+    return r
+B = [bm25(q) for q, _ in questions]
+print(f"BM25:                      hit@3 = {np.mean([hit3(b, a) for b, (_, a) in zip(B, questions)]):.2f}")
+try:
+    from transformers import AutoTokenizer, AutoModel
+    e_tok, e_mod = AutoTokenizer.from_pretrained("intfloat/multilingual-e5-small"), AutoModel.from_pretrained("intfloat/multilingual-e5-small").eval()
+    def embed(texts, prefix, bs=32):                                          # e5 обучен с префиксами "query: " / "passage: "
+        out = []
+        for i in range(0, len(texts), bs):
+            enc = e_tok([prefix + t for t in texts[i:i + bs]], padding=True, truncation=True, max_length=512, return_tensors="pt")
+            with torch.no_grad(): h = e_mod(**enc).last_hidden_state
+            m = enc.attention_mask[..., None]; out.append(torch.nn.functional.normalize((h * m).sum(1) / m.sum(1), dim=-1))
+        return torch.cat(out).numpy()
+    E = embed([c for _, c in chunks], "passage: ")
+    for name, qp in [("dense e5, без префикса", ""), ("dense e5, с 'query: '", "query: ")]:
+        D = embed([q for q, _ in questions], qp) @ E.T
+        print(f"{name:26s} hit@3 = {np.mean([hit3(d, a) for d, (_, a) in zip(D, questions)]):.2f}")
+    print(f"гибрид BM25 + e5 (RRF):    hit@3 = {np.mean([hit3(rrf(b, d), a) for b, d, (_, a) in zip(B, D, questions)]):.2f}")
+    retrieve = lambda q, k=3: [chunks[i][1] for i in np.argsort(-rrf(bm25(q), embed([q], "query: ")[0] @ E.T))[:k]]
+except Exception as e:
+    print("не удалось загрузить с Hugging Face Hub (нужен интернет):", type(e).__name__, str(e)[:120])
+    retrieve = lambda q, k=3: [chunks[i][1] for i in np.argsort(-bm25(q))[:k]]
+```
+
+Результат запуска:
+
+```text
+494 чанков из 27 тем
+BM25:                      hit@3 = 0.94
+dense e5, без префикса     hit@3 = 1.00
+dense e5, с 'query: '      hit@3 = 1.00
+гибрид BM25 + e5 (RRF):    hit@3 = 1.00
+```
+
+```python
+# Генерация с контекстом и без (Qwen2.5-1.5B-Instruct, ~3 ГБ; на CPU — минуты, в Colab с GPU — секунды)
+try:
+    from transformers import AutoTokenizer, AutoModelForCausalLM
+    name = "Qwen/Qwen2.5-1.5B-Instruct"
+    tok, llm = AutoTokenizer.from_pretrained(name), AutoModelForCausalLM.from_pretrained(name, dtype=torch.bfloat16).eval()
+    def chat(messages, tools=None, max_new_tokens=120):
+        enc = tok.apply_chat_template(messages, tools=tools, add_generation_prompt=True, return_tensors="pt", return_dict=True)
+        with torch.no_grad(): out = llm.generate(**enc, max_new_tokens=max_new_tokens, do_sample=False)
+        return tok.decode(out[0, enc["input_ids"].shape[1]:], skip_special_tokens=True)
+    q = "Зачем в LoRA матрицу B инициализируют нулём?"
+    print("БЕЗ КОНТЕКСТА:", chat([{"role": "user", "content": q}])[:400], "\n")
+    context = "\n---\n".join(retrieve(q))
+    rag_messages = [{"role": "system", "content": "Отвечай кратко и только по контексту. Если в контексте нет ответа — скажи, что не знаешь."},
+                    {"role": "user", "content": f"Контекст:\n{context}\n\nВопрос: {q}"}]
+    print("С КОНТЕКСТОМ (RAG):", chat(rag_messages)[:400])
+except Exception as e:
+    print("не удалось загрузить с Hugging Face Hub (нужен интернет):", type(e).__name__, str(e)[:120])
+```
+
+Результат запуска:
+
+```text
+БЕЗ КОНТЕКСТА: В LoRA (Low-Rank Additive Noise Autoencoder) используется матрица B для добавления шума к входным данным. Вот несколько причин, почему матрица B может быть инициализирована нулями:
+
+1. Структура данных:
+   - В LoRA часто используются матрицы с простой структурой, например, 2D или 3D.
+   - Инициализация нулями позволяет упростить математические операции.
+
+2. Простота вы 
+
+С КОНТЕКСТОМ (RAG): В LoRA матрица B инициализируется нулём, чтобы модель не была испорчена при обновлении весов при дообучении. Это позволяет градиентам по B быть ненулевыми, что важно для процесса обучения.
+```
+
+```python
+# Агентный цикл с инструментами: модель решает, что вызвать; код исполняет; результат возвращается в контекст
+def calculator(expression: str) -> str:
+    """Вычисляет арифметическое выражение.
+
+    Args:
+        expression: выражение на Python, например "12 * 512**2"
+    """
+    return str(eval(expression, {"__builtins__": {}}, {}))                    # учебный пример: eval небезопасен!
+
+def search_notes(query: str) -> str:
+    """Ищет фрагменты в конспекте курса по машинному обучению.
+
+    Args:
+        query: поисковый запрос
+    """
+    return "\n---\n".join(c[:600] for c in retrieve(query, k=2))
+
+def run_agent(task, tools, max_turns=4):
+    messages, handlers = [{"role": "user", "content": task}], {f.__name__: f for f in tools}
+    for turn in range(max_turns):
+        reply = chat(messages, tools=tools, max_new_tokens=150)
+        messages.append({"role": "assistant", "content": reply})
+        calls = re.findall(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", reply, re.S)   # формат вызова Qwen2.5
+        if not calls:                                                         # нет вызовов — это финальный ответ
+            return print(f"ОТВЕТ: {reply.strip()[:300]}")
+        for raw in calls:
+            call = json.loads(raw); result = handlers[call["name"]](**call["arguments"])
+            print(f"  ход {turn}: {call['name']}({call['arguments']}) → {result[:80]!r}")
+            messages.append({"role": "tool", "name": call["name"], "content": result})
+
+if "chat" in globals():
+    task = "Сколько параметров в слое трансформера с d=768, если их примерно 12*d^2? Посчитай инструментом."
+    run_agent(task, [calculator, search_notes])
+    # Модель пишет 12*768^2, а в Python ^ — это XOR: 9218 вместо 7 077 888. Чиним инструмент, а не модель:
+    def calculator(expression: str) -> str:
+        """Вычисляет арифметическое выражение. Степень можно писать как ** или ^.
+
+        Args:
+            expression: выражение, например "12 * 512**2"
+        """
+        return str(eval(expression.replace("^", "**"), {"__builtins__": {}}, {}))
+    print("после исправления инструмента:"); run_agent(task, [calculator, search_notes])
+    # Сравните число в ответе с результатом инструмента: маленькая модель может «переписать» его с ошибкой
+```
+
+Результат запуска:
+
+```text
+  ход 0: calculator({'expression': '12*768^2'}) → '9218'
+ОТВЕТ: Ваш инструмент подсказывает, что количество параметров в слое трансформера с длиной вектора d=768 составляет approximately 9218 parameters.
+после исправления инструмента:
+  ход 0: calculator({'expression': '12*768^2'}) → '7077888'
+ОТВЕТ: В слое трансформера с длиной вектора d=768 примерно 70,778,880 параметров.
+```
+
+</details>
+
+<details>
+<summary><b>Что почитать / посмотреть</b></summary>
+
+- [yandexdataschool/nlp_course](https://github.com/yandexdataschool/nlp_course): week06 — Prompting & In-Context Learning, week09 — RAG, week10 — AI Agents, week13 — Building LLM Systems, week14 — AI Agents in Production
+- [DL2 HSE, неделя 4: RLHF and LLM Agents](https://github.com/thecrazymage/DL2_HSE/tree/main/week_04) · [неделя 5: Agentic RL](https://github.com/thecrazymage/DL2_HSE/tree/main/week_05)
+- Руководства: [Prompt Engineering Guide](https://www.promptingguide.ai/) · [Lilian Weng — Prompt Engineering](https://lilianweng.github.io/posts/2023-03-15-prompt-engineering/) · [Lilian Weng — LLM Powered Autonomous Agents](https://lilianweng.github.io/posts/2023-06-23-agent/) · [Chip Huyen — Agents](https://huyenchip.com/2025/01/07/agents.html) · [Model Context Protocol](https://modelcontextprotocol.io/)
+- Инструменты: [LangChain RAG](https://python.langchain.com/docs/tutorials/rag/) · [llama-cpp-python](https://github.com/abetlen/llama-cpp-python) · [Ollama](https://ollama.com/) · [vLLM](https://github.com/vllm-project/vllm) · [Chroma](https://docs.trychroma.com/) · [FAISS](https://github.com/facebookresearch/faiss) · [RAGAS](https://docs.ragas.io/) · [MTEB leaderboard](https://huggingface.co/spaces/mteb/leaderboard) · [Hugging Face Chat templates и tool use](https://huggingface.co/docs/transformers/chat_extras)
+- Статьи: [RAG (Lewis et al.)](https://arxiv.org/abs/2005.11401) · [Dense Passage Retrieval](https://arxiv.org/abs/2004.04906) · [E5](https://arxiv.org/abs/2212.03533) · [BM25 (Robertson & Zaragoza)](https://www.staff.city.ac.uk/~sbrp622/papers/foundations_bm25_review.pdf) · [RRF](https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf) · [MMR](https://www.cs.cmu.edu/~jgc/publication/The_Use_MMR_Diversity_Based_LTMIR_1998.pdf) · [HyDE](https://arxiv.org/abs/2212.10496) · [Lost in the Middle](https://arxiv.org/abs/2307.03172) · [Chain-of-Thought](https://arxiv.org/abs/2201.11903) · [Self-Consistency](https://arxiv.org/abs/2203.11171) · [ReAct](https://arxiv.org/abs/2210.03629) · [Toolformer](https://arxiv.org/abs/2302.04761) · [RAGAS](https://arxiv.org/abs/2309.15217) · [Judging LLM-as-a-Judge](https://arxiv.org/abs/2306.05685) · [Prompt injection (Greshake et al.)](https://arxiv.org/abs/2302.12173)
+
+</details>
+
+<details>
+<summary><b>Источники курса</b></summary>
 
 - Семинар 11 «LLM: промптинг, локальный запуск, RAG» ([Colab](https://colab.research.google.com/drive/1EEQZucOFKzYb-h4PScG6UpQWFpqiQmtv)): base vs instruct, chat template, llama-cpp-python + GGUF, RAG на LangChain + Chroma, ретриверы (similarity, threshold, MMR), задания.
 - `AI-agents-mamaev.pdf` — «Архитектура AI-агентов» (А. Мамаев, 29 слайдов): определения, harness, 12 шагов от цикла до команд агентов, промышленный контекст, рекомендации по изучению.
 
+</details>
 
-<!-- materials:start -->
-**Файлы курса в репозитории:**
+<details>
+<summary><b>Литература к выводам</b></summary>
 
-- [Семинар 11: LLM, локальный запуск, RAG](../../materials/seminars/26_Семинар_11_LLM_RAG_агенты.ipynb) · [открыть в Colab](https://colab.research.google.com/drive/1EEQZucOFKzYb-h4PScG6UpQWFpqiQmtv)
-<!-- materials:end -->
+- Robertson, Zaragoza. [The Probabilistic Relevance Framework: BM25 and Beyond](https://www.staff.city.ac.uk/~sbrp622/papers/foundations_bm25_review.pdf), 2009.
+- Karpukhin et al. [Dense Passage Retrieval](https://arxiv.org/abs/2004.04906), 2020 · Wang et al. [E5: Text Embeddings by Weakly-Supervised Contrastive Pre-training](https://arxiv.org/abs/2212.03533), 2022 · Khattab, Zaharia. [ColBERT](https://arxiv.org/abs/2004.12832), 2020.
+- Cormack et al. [Reciprocal Rank Fusion](https://plg.uwaterloo.ca/~gvcormac/cormacksigir09-rrf.pdf), 2009 · Carbonell, Goldstein. [MMR](https://www.cs.cmu.edu/~jgc/publication/The_Use_MMR_Diversity_Based_LTMIR_1998.pdf), 1998.
+- Lewis et al. [Retrieval-Augmented Generation](https://arxiv.org/abs/2005.11401), 2020 · Liu et al. [Lost in the Middle](https://arxiv.org/abs/2307.03172), 2023.
+- Wang et al. [Self-Consistency](https://arxiv.org/abs/2203.11171), 2022 · Yao et al. [ReAct](https://arxiv.org/abs/2210.03629), 2022.
+- Документация llama.cpp: [квантование](https://github.com/ggml-org/llama.cpp/blob/master/tools/quantize/README.md).
+
+</details>
+
+<details>
+<summary><b>Материалы курса и ссылки</b></summary>
+
+- **Семинары:** [Семинар 11: LLM, локальный запуск, RAG](../../materials/seminars/26_Семинар_11_LLM_RAG_агенты.ipynb) ([Colab](https://colab.research.google.com/drive/1EEQZucOFKzYb-h4PScG6UpQWFpqiQmtv))
+- **Видео и внешние курсы:** [Курс NLP ШАД (yandexdataschool/nlp_course)](https://github.com/yandexdataschool/nlp_course) · [DL2 HSE (thecrazymage/DL2_HSE)](https://github.com/thecrazymage/DL2_HSE)
+
+</details>
 
 ---
 
-[← Шпаргалка](../../cheatsheet.ipynb) · [🔬 Выводы и математика →](deep.md) · [27. Генеративные модели →](../27_generative_models/README.md)
+[← 25. Дообучение LLM: SFT, PEFT (LoRA, QLoRA), выравнивание (RLHF, DPO)](../25_llm_finetuning_peft/README.md) · [Оглавление курса](../../README.md) · [27. Генеративные модели: автокодировщики, VAE, VQ-VAE, GAN, диффузия →](../27_generative_models/README.md)

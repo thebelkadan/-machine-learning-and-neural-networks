@@ -1,10 +1,34 @@
-# 16. Свёрточные нейронные сети: свёртки, архитектуры, аугментации, transfer learning
+# 16. Свёрточные сети (CNN)
 
-[← Шпаргалка](../../cheatsheet.ipynb) · [Карта курса](../../README.md) · [🔬 Выводы и математика →](deep.md) · [← 15. Обучение нейросетей](../15_nn_training/README.md) · [17. Сегментация →](../17_segmentation/README.md)
+[Шпаргалка (ноутбук)](../../cheatsheet.ipynb) · [Оглавление курса](../../README.md)
 
----
+**Суть.** Изображение — тензор $C\times H\times W$. Свёрточный слой скользит **одним и тем же** маленьким ядром по всей картинке:
+локальные связи + разделение весов → мало параметров и **эквивариантность к сдвигу**. Пулинг / шаг 2 понижают разрешение,
+рецептивное поле растёт; в конце — глобальный пулинг и голова. Линия архитектур AlexNet → VGG → Inception → **ResNet**
+(residual-связи). На практике берут **предобученный бэкбон** (transfer learning) и **аугментации**.
 
-## 1. Почему не полносвязная сеть
+| Термин | Определение |
+|---|---|
+| Ядро, stride, padding, dilation | фильтр $C_{in}\times k\times k$; шаг; дополнение краёв; промежутки в ядре |
+| Карта признаков / канал | выход одной свёртки; $k$ свёрток → $k$ каналов |
+| Рецептивное поле | область входа, влияющая на один выход: $1+L(k-1)$ без понижения разрешения |
+| Свёртка 1×1 | полносвязный слой по каналам в каждом пикселе (bottleneck, голова сегментации) |
+| Pooling / GAP | max/mean в окне / среднее по всей карте → независимость от размера входа |
+| Residual-связь | $y=F(x)+x$: градиент идёт в обход блоков |
+| Feature extraction / fine-tuning | обучаем только голову / всю сеть с малым темпом |
+
+$$
+H_{out}=\Big\lfloor\frac{H_{in}+2p-d(k-1)-1}{s}\Big\rfloor+1,\qquad
+\#\text{params}=C_{out}(C_{in}k^2+1),\qquad
+\#\text{MAC}=H_{out}W_{out}C_{out}C_{in}k^2
+$$
+
+## Конспект
+
+Разделы раскрываются по клику.
+
+<details>
+<summary><b>1. Почему не полносвязная сеть</b></summary>
 
 **Изображение** — трёхмерный тензор $C\times H\times W$ (цветное: 3 канала RGB; в PyTorch батч хранится как $N\times C\times H\times W$).
 
@@ -18,9 +42,10 @@
 
 **Свёрточные нейронные сети** (ConvNet, CNN) — нейросети для «равномерных сигналов» (изображения, звук, ряды).
 
----
+</details>
 
-## 2. Свёртка и её параметры
+<details>
+<summary><b>2. Свёртка и её параметры</b></summary>
 
 1-D свёртка: ядро (например, $[-1, 0, 1]$) скользит по сигналу, в каждой позиции — сумма поэлементных произведений.
 В нейросетях это математически **корреляция** (ядро не отражается) — для обучаемых ядер неважно.
@@ -48,30 +73,31 @@ nn.Conv2d(in_channels=16, out_channels=33, kernel_size=(3, 5), stride=(2, 1), pa
 # in_channels и out_channels должны делиться на groups
 ```
 
-### Сколько параметров и операций
+**Сколько параметров и операций**
 
 - Параметры: $C_{\text{out}}\cdot(C_{\text{in}}\cdot k\cdot k + 1)$; пример $3\to64$, $3\times3$: **1792**. Размер картинки не влияет — **разделение весов**.
 - Операции: $H_{\text{out}}\cdot W_{\text{out}}\cdot C_{\text{out}}\cdot C_{\text{in}}\cdot k^2$; тот же слой на $224\times224$ — ≈ 87 млн умножений-сложений. На стоимость
   размер картинки влияет прямо → разрешение понижают по ходу сети.
 - Это не оптимизация, а **другая модель**: мы заранее заявили, что признак не зависит от положения и локален.
 
-### Рецептивное поле
+**Рецептивное поле**
 
 Область входа, влияющая на один элемент карты признаков. Стек из $L$ слоёв $k\times k$ с шагом 1: $\text{RF} = 1 + L(k - 1)$
 (2 слоя $3\times3$ → $5\times5$, 3 → $7\times7$). Каждое понижение разрешения удваивает скорость роста.
 **Правило VGG:** вместо $5\times5$ — две $3\times3$: то же поле, на 28% меньше весов и на одну нелинейность больше.
-Если сеть «не видит» контекст — посчитайте рецептивное поле: часто оно физически меньше объекта ([формула с шагами](deep.md#4-рецептивное-поле)).
+Если сеть «не видит» контекст — посчитайте рецептивное поле: часто оно физически меньше объекта (формула с шагами (см. раздел «4. Рецептивное поле»)).
 
-### Свёртка 1×1
+**Свёртка 1×1**
 
 Полносвязный слой **по каналам**, одинаковый для всех пикселей (соседей не смотрит); весов $C_{\text{in}}C_{\text{out}}$ — в 9 раз меньше,
 чем у $3\times3$. «Смешать пространство и смешать каналы — две разные задачи; $1\times1$ решает вторую, не платя за первую».
 Применения: **bottleneck** (сжать каналы → дорогая $3\times3$ → разжать: 69 тыс. весов против 590 тыс.), выравнивание каналов в
 skip connection, дешёвая нелинейность (маленький MLP в каждом пикселе), **голова сегментации** ($C$ признаков → $K$ классов в пикселе).
 
----
+</details>
 
-## 3. Pooling
+<details>
+<summary><b>3. Pooling</b></summary>
 
 **Агрегация (субдискретизация):** для каждого канала независимо — max или mean в окне (обычно $2\times2$ с шагом 2 → разрешение
 вдвое меньше); число каналов сохраняется. Max-pooling — «опросить соседей, есть ли кошка». При дифференцировании градиент
@@ -81,11 +107,12 @@ skip connection, дешёвая нелинейность (маленький MLP
 **Сегодня это не догма:** в ResNet и далее разрешение понижают **свёрткой с шагом 2**, а пулинг остаётся в конце — **глобальный**.
 
 **Эквивариантность ≠ инвариантность.** Свёртка эквивариантна к сдвигу (сдвинули вход — сдвинулась карта признаков);
-инвариантность добавляет пулинг. Путать нельзя ([почему CNN не полностью инвариантна](deep.md#5-эквивариантность-и-инвариантность)).
+инвариантность добавляет пулинг. Путать нельзя (почему CNN не полностью инвариантна (см. раздел «5. Эквивариантность и инвариантность»)).
 
----
+</details>
 
-## 4. Устройство CNN
+<details>
+<summary><b>4. Устройство CNN</b></summary>
 
 **Мотивация свёрточного слоя:** разреженные взаимодействия (нейрон видит своё окно), **разделение параметров** (одна свёртка по
 всему изображению), **эквивариантность к сдвигу**.
@@ -123,9 +150,10 @@ class CNN(nn.Module):
         return self.head(self.pool(self.features(x)).flatten(1))
 ```
 
----
+</details>
 
-## 5. Архитектуры: AlexNet → VGG → Inception → ResNet
+<details>
+<summary><b>5. Архитектуры: AlexNet → VGG → Inception → ResNet</b></summary>
 
 ILSVRC (ImageNet: 1.2 млн картинок, 1000 классов): за пять лет ошибка упала в семь раз; все победители после 2012 — CNN.
 
@@ -141,7 +169,7 @@ ILSVRC (ImageNet: 1.2 млн картинок, 1000 классов): за пят
 перемножению матриц).
 
 **ResNet и проблема деградации:** у 56-слойной сети ошибка выше, чем у 20-слойной, **даже на обучении** — проблема не в переобучении,
-оптимизация не справляется. «Ничего не делать» для residual-блока — это обнулить веса $F$ ([почему градиент не затухает](deep.md#8-resnet-почему-градиент-не-затухает)).
+оптимизация не справляется. «Ничего не делать» для residual-блока — это обнулить веса $F$ (почему градиент не затухает (см. раздел «8. ResNet: почему градиент не затухает»)).
 
 ```python
 class BasicBlock(nn.Module):
@@ -153,9 +181,10 @@ class BasicBlock(nn.Module):
         return torch.relu(self.f(x) + x)          # skip connection
 ```
 
----
+</details>
 
-## 6. Аугментации
+<details>
+<summary><b>6. Аугментации</b></summary>
 
 Аугментация — способ сказать сети: «**эти преобразования не меняют ответ**». Правильное — качество растёт; неправильное — вы
 учите сеть неправде. Это **утверждение о вашей задаче**, а не универсальная кнопка.
@@ -181,9 +210,10 @@ test_tf = T.Compose([T.Resize(256), T.CenterCrop(224), T.ToTensor(),
                      T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
 ```
 
----
+</details>
 
-## 7. Transfer learning
+<details>
+<summary><b>7. Transfer learning</b></summary>
 
 **Зачем:** обучить ResNet-50 на ImageNet — дни на нескольких GPU; а в вашей задаче обычно ~2000 картинок и 5 классов — сеть на
 25 млн параметров с нуля их просто запомнит. **Ранние слои** выучивают края, пятна цвета, текстуры — они одинаковы у кошек,
@@ -229,30 +259,337 @@ opt = torch.optim.AdamW([{"params": m.layer4.parameters(), "lr": 1e-4},
 - **ошибки препроцессинга:** пиксели 0…255 вместо нормировки → явная ерунда («вантуз» с уверенностью 1.00); забытые mean/std или
   BGR вместо RGB → правдоподобные ответы с другой уверенностью — ошибку **не видно**.
 
----
+</details>
 
-## Что почитать / посмотреть
+**Математика и выводы**
 
-- 📘 Учебник ML Яндекса: [Свёрточные нейросети](https://education.yandex.ru/handbook/ml/article/svyortochnye-nejroseti)
-- 📄 [CS231n: Convolutional Networks](https://cs231n.github.io/convolutional-networks/) · [Transfer Learning](https://cs231n.github.io/transfer-learning/) · курс [cs231n.stanford.edu](https://cs231n.stanford.edu/)
-- 📄 [A guide to convolution arithmetic](https://arxiv.org/abs/1603.07285) · [Computing Receptive Fields (distill)](https://distill.pub/2019/computing-receptive-fields) · [Image kernels (setosa.io)](https://setosa.io/ev/image-kernels/)
-- 📄 Статьи: [AlexNet](https://papers.nips.cc/paper/4824-imagenet-classification-with-deep-convolutional-neural-networks) · [VGG](https://arxiv.org/abs/1409.1556) · [GoogLeNet](https://arxiv.org/abs/1409.4842) · [ResNet](https://arxiv.org/abs/1512.03385) · [MobileNets](https://arxiv.org/abs/1704.04861) · [ZFNet](https://arxiv.org/abs/1311.2901) · [How transferable are features](https://arxiv.org/abs/1411.1792) · [Do Better ImageNet Models Transfer Better?](https://arxiv.org/abs/1805.08974)
+<details>
+<summary><b>1. Свёртка и корреляция</b></summary>
 
-## Источники курса
+**Свёртка** в математике: $(f * g)(t) = \int f(\tau)g(t - \tau)\,d\tau$; дискретно $(x * k)[i] = \sum_m x[m]\,k[i - m]$. Она **коммутативна**
+($x * k = k * x$). Если ядро ненулевое только в окне $m \in [0, K)$, то $(x * k)[i] = \sum_{m=0}^{K-1}k[m]\,x[i - m]$ — ядро «перевёрнуто».
+
+**В нейросетях** (`torch.nn.Conv2d`) считается **взаимная корреляция** — без отражения ядра:
+
+$$
+y[c_{\text{out}}, i, j] = b[c_{\text{out}}] + \sum_{c=1}^{C_{\text{in}}}\sum_{u=0}^{k-1}\sum_{v=0}^{k-1} W[c_{\text{out}}, c, u, v]\;x[c,\; s\,i + d\,u - p,\; s\,j + d\,v - p] .
+$$
+
+Для обучаемых ядер разница неважна (сеть выучит отражённое ядро), для заданных вручную (Собель) — меняется знак
+(семинар: `F.conv2d(x, k) = 1.0`, а свёртка с отражённым ядром — 9.0).
+
+</details>
+
+<details>
+<summary><b>2. Размер выхода</b></summary>
+
+Вдоль оси: вход $H_{\text{in}}$, ядро $k$, шаг $s$, отступ $p$, расширение $d$. Эффективный размер ядра с расширением
+$k_{\text{eff}} = d(k - 1) + 1$. Ядро помещается в позиции $0, s, 2s, \dots$ пока $s\cdot i + k_{\text{eff}} \le H_{\text{in}} + 2p$, откуда
+
+$$
+H_{\text{out}} = \Big\lfloor\frac{H_{\text{in}} + 2p - d(k-1) - 1}{s}\Big\rfloor + 1 .
+$$
+
+Частые случаи: $k = 3, p = 1, s = 1$ — размер сохраняется («same»); $s = 2$ — уменьшение вдвое; пулинг $2\times2$ с шагом 2 — вдвое.
+
+</details>
+
+<details>
+<summary><b>3. Параметры и операции</b></summary>
+
+$$
+\#\text{params} = C_{\text{out}}(C_{\text{in}}k^2 + 1), \qquad \#\text{MAC} = H_{\text{out}}W_{\text{out}}\,C_{\text{out}}\,C_{\text{in}}\,k^2 .
+$$
+
+Пример: $3 \to 64$, $3\times3$: $64\cdot(27 + 1) = 1792$ веса; на входе $224\times224$: $224^2\cdot64\cdot3\cdot9 \approx 87$ млн умножений-сложений.
+Полносвязный слой $224\cdot224\cdot3 \to 224\cdot224\cdot64$ потребовал бы $150\,528\cdot3\,211\,264 \approx 4.8\cdot10^{11}$ весов. Размер картинки **не влияет**
+на число параметров (разделение весов), но **прямо влияет** на стоимость.
+
+**Почему стоимость блоков VGG одинакова.** Переход к следующему блоку: разрешение делится на 2 по каждой оси (позиций в 4 раза
+меньше), каналы удваиваются на входе и выходе ($C_{\text{in}}C_{\text{out}}$ в 4 раза больше) — стоимость слоя не меняется, а параметры растут
+вчетверо. Отсюда вывод семинара: **ускорять сеть — уменьшая разрешение, уменьшать память — уменьшая каналы в конце.**
+
+**Групповые свёртки** (`groups=g`): каналы делятся на $g$ групп, каждая свёртка видит $C_{\text{in}}/g$ каналов → параметров и операций в $g$ раз
+меньше (появились в AlexNet: сеть делили на две GPU). **Depthwise separable** (MobileNet): depthwise $k\times k$ (`groups = C_in`) + pointwise $1\times1$:
+
+$$
+\frac{C_{\text{in}}k^2 + C_{\text{in}}C_{\text{out}}}{C_{\text{in}}C_{\text{out}}k^2} = \frac{1}{C_{\text{out}}} + \frac{1}{k^2} \approx \frac19 \text{ при } k = 3 .
+$$
+
+</details>
+
+<details>
+<summary><b>4. Рецептивное поле</b></summary>
+
+Обозначим $j_l = \prod_{i\le l}s_i$ — «шаг» (jump) слоя $l$ во входных пикселях. Тогда
+
+$$
+r_l = r_{l-1} + \big(k_{\text{eff}, l} - 1\big)\,j_{l-1}, \qquad r_0 = 1,\; j_0 = 1 .
+$$
+
+Без понижения разрешения ($s = 1$): $r_L = 1 + L(k - 1)$ — линейный рост (8 слоёв $3\times3$ → $17\times17$; до $224\times224$ — больше сотни слоёв).
+С понижением вдвое каждый блок удваивает $j$ — рост **геометрический**. Семинар проверил формулу, измерив градиент выхода
+по входу (ненулевые пиксели = рецептивное поле).
+
+**Правило VGG:** две свёртки $3\times3$ дают поле $5\times5$ при $2\cdot9C^2 = 18C^2$ весах против $25C^2$ у $5\times5$ (−28%) и с дополнительной
+нелинейностью; три $3\times3$ = поле $7\times7$: $27C^2$ против $49C^2$.
+
+**Эффективное** рецептивное поле меньше теоретического: вклад пикселей распределён приблизительно по Гауссу с центром
+в середине поля (Luo et al., 2016) — края поля влияют слабо.
+
+</details>
+
+<details>
+<summary><b>5. Эквивариантность и инвариантность</b></summary>
+
+Пусть $T_s$ — сдвиг изображения. Свёртка (с шагом 1, без учёта границ) **эквивариантна**: $\operatorname{conv}(T_sx) = T_s\operatorname{conv}(x)$ —
+одно и то же ядро применяется во всех позициях. Поэлементная нелинейность тоже эквивариантна. **Глобальный** пулинг
+(среднее/максимум по всем позициям) **инвариантен**: $\max_{i,j}(T_sz) = \max_{i,j}z$. Локальный max-pooling даёт лишь
+приблизительную инвариантность к малым сдвигам.
+
+Но: шаг > 1 и пулинг с шагом нарушают точную эквивариантность (сдвиг на 1 пиксель меняет сетку подвыборки — эффект алиасинга;
+Zhang, *Making Convolutional Networks Shift-Invariant Again*, 2019), а границы холста и обрезка объекта тоже вносят вклад.
+Поэтому в семинаре CNN, обученная на центрированных цифрах, на сдвинутых даёт ~0.6, а не 0.97: «CNN инвариантна к
+сдвигу» — неверно; инвариантность добавляют **аугментации** (со сдвиговой аугментацией — 0.958).
+
+</details>
+
+<details>
+<summary><b>6. Обратный проход через свёртку и пулинг</b></summary>
+
+Свёртку можно записать как умножение на разреженную матрицу (im2col / тёплицева матрица): $y = Kx$. Тогда
+$\frac{\partial L}{\partial x} = K^\top\frac{\partial L}{\partial y}$ — это **транспонированная свёртка** (свёртка градиента с отражённым ядром,
+с соответствующим расширением при $s > 1$); $\frac{\partial L}{\partial W}$ — корреляция входа с градиентом выхода. Транспонированные
+свёртки используются как обучаемый апсемплинг в сегментации (тема [17](../17_segmentation/README.md)).
+
+**Max-pooling:** градиент передаётся только в позицию максимума окна (остальным — 0). **Average pooling:** делится поровну.
+
+</details>
+
+<details>
+<summary><b>7. Свёртка 1×1 и bottleneck</b></summary>
+
+В каждой точке $(i, j)$: $y[:, i, j] = Wx[:, i, j] + b$, $W \in \mathbb{R}^{C_{\text{out}}\times C_{\text{in}}}$ — полносвязный слой по каналам, общий для всех
+пикселей; соседей не смотрит. Bottleneck ResNet-50 на 256 каналах:
+$1\times1\,(256\to64) + 3\times3\,(64\to64) + 1\times1\,(64\to256) = 16\,384 + 36\,864 + 16\,384 = 69\,632$ весов против $9\cdot256^2 = 589\,824$ у одной
+$3\times3$ (в 8.5 раза больше).
+
+**Inception:** без $1\times1$-сжатия пулинговая ветка пропускает все 256 каналов: $64 + 128 + 32 + 256 = 480$ — сеть «пухнет» от модуля к
+модулю; со сжатием $64 + 128 + 32 + 32 = 256$. Итог GoogLeNet — 22 слоя и 6.8 млн параметров (в 20 раз меньше VGG).
+
+</details>
+
+<details>
+<summary><b>8. ResNet: почему градиент не затухает</b></summary>
+
+Блок $x_{l+1} = x_l + F(x_l, W_l)$ (в «чистом» варианте с тождественными связями). Развернём: $x_L = x_l + \sum_{i=l}^{L-1}F(x_i, W_i)$. Тогда
+
+$$
+\frac{\partial L}{\partial x_l} = \frac{\partial L}{\partial x_L}\Big(I + \frac{\partial}{\partial x_l}\sum_{i=l}^{L-1}F(x_i, W_i)\Big) .
+$$
+
+Слагаемое $\frac{\partial L}{\partial x_L}\cdot I$ передаёт градиент к любому слою **напрямую**, без произведения якобианов — он не может затухнуть
+(He et al., *Identity Mappings in Deep Residual Networks*, 2016). Кроме того, «ничего не делать» для блока — это $F = 0$
+(веса около нуля), что легко выучить, тогда как в обычной сети тождественное отображение нужно выучить через нелинейности.
+
+**Проблема деградации:** 56-слойная «простая» сеть имеет **большую ошибку на обучении**, чем 20-слойная — это не переобучение,
+а трудность оптимизации. Residual-связи её снимают: ResNet-152, top-5 ошибка 3.57% — впервые ниже человеческой оценки 5.1%.
+
+</details>
+
+<details>
+<summary><b>9. BatchNorm2d, Dropout2d, GAP</b></summary>
+
+- **BatchNorm2d(C):** среднее и дисперсия по батчу **и всем позициям** $(N, H, W)$ — по одному числу на канал; параметров $2C$
+  (не $2CHW$) — сохраняет эквивариантность. Перед BN — `bias=False`.
+- **Dropout2d:** соседние пиксели карты сильно скоррелированы — обнуление отдельных элементов почти не регуляризует; гасим
+  **каналы целиком**.
+- **GAP vs Flatten:** Flatten фиксирует размер входа (VGG: $7\cdot7\cdot512 = 25\,088$ входов × 4096 = **103 млн** из 138 млн параметров
+  сети!). GAP: параметров ноль, работает с любым разрешением, даёт инвариантность к положению.
+
+</details>
+
+<details>
+<summary><b>10. Почему работает transfer learning</b></summary>
+
+Yosinski et al. (2014): признаки первых слоёв **универсальны** (фильтры Габора, цветовые пятна — у сетей на любых
+естественных изображениях), последних — **специфичны** задаче. При переносе между далёкими доменами переносимость падает
+с глубиной слоя; дообучение (fine-tuning) возвращает качество. Kornblith et al. (2018): лучшие на ImageNet модели обычно
+лучше переносятся (корреляция ~0.99 для fine-tuning), но для далёких доменов (как в семинаре: шумные цифры $20\times20$)
+маленький бэкбон с близкого домена может обыграть ResNet18 с ImageNet.
+
+</details>
+
+<details>
+<summary><b>Вопросы с собеседований</b></summary>
+
+Сначала ответьте сами, потом раскройте ответ.
+
+<details>
+<summary>Эквивариантность vs инвариантность?</summary>
+
+свёртка эквивариантна к сдвигу, глобальный пулинг даёт инвариантность; CNN без аугментаций всё равно проседает на сдвигах.
+
+</details>
+
+<details>
+<summary>Почему две свёртки 3×3 лучше одной 5×5?</summary>
+
+то же поле, на 28% меньше весов, больше нелинейностей.
+
+</details>
+
+<details>
+<summary>Зачем residual-связи?</summary>
+
+проблема деградации глубоких сетей — оптимизационная; через $+x$ градиент идёт напрямую.
+
+</details>
+
+<details>
+<summary>Главная ошибка transfer learning?</summary>
+
+другой препроцессинг (mean/std, порядок каналов), BN не в eval, слишком большой темп при разморозке.
+
+</details>
+
+<details>
+<summary>Почему Dropout2d, а не Dropout в CNN?</summary>
+
+соседние пиксели скоррелированы; гасим каналы целиком.
+
+</details>
+
+</details>
+
+<details>
+<summary><b>Дополнительно: детали</b></summary>
+
+- В PyTorch `Conv2d` — это корреляция (ядро не отражается); для обучаемых ядер всё равно.
+- Рецептивное поле с шагами: $r_l=r_{l-1}+(k_l-1)\prod_{i<l}s_i$ — понижение разрешения даёт геометрический рост.
+- Depthwise separable: стоимость в $\frac1{C_{out}}+\frac1{k^2}$ раз от обычной.
+- ResNet: $\frac{\partial L}{\partial x_l}=\frac{\partial L}{\partial x_L}\big(I+\frac{\partial}{\partial x_l}\sum F\big)$ — слагаемое $I$ не затухает.
+
+</details>
+
+<details>
+<summary><b>Примеры кода (с результатами запуска)</b></summary>
+
+Запустить их можно в ноутбуке [`cheatsheet.ipynb`](../../cheatsheet.ipynb).
+
+```python
+import numpy as np, torch, torch.nn as nn, torch.nn.functional as F
+torch.manual_seed(0)
+
+def out_size(h, k, s=1, p=0, d=1):
+    return (h + 2 * p - d * (k - 1) - 1) // s + 1
+for h, k, s, p, d in [(20, 3, 1, 0, 1), (20, 3, 2, 1, 1), (224, 7, 2, 3, 1), (20, 3, 1, 2, 2)]:
+    real = nn.Conv2d(1, 1, k, stride=s, padding=p, dilation=d)(torch.zeros(1, 1, h, h)).shape[-1]
+    print(f"in={h:3d} k={k} s={s} p={p} d={d}: формула {out_size(h, k, s, p, d):3d}, PyTorch {real:3d}")
+print("Conv2d(3→64, 3×3) параметров:", sum(p.numel() for p in nn.Conv2d(3, 64, 3).parameters()), "(64·(3·9+1) = 1792)")
+
+# Рецептивное поле градиентом: ненулевой градиент центрального выхода по входу
+for L in (1, 2, 3, 5):
+    net = nn.Sequential(*[nn.Conv2d(1, 1, 3, padding=1) for _ in range(L)])
+    for m in net: nn.init.constant_(m.weight, 1.0)
+    x = torch.zeros(1, 1, 41, 41, requires_grad=True); net(x)[0, 0, 20, 20].backward()
+    rows = np.nonzero(x.grad[0, 0].abs().sum(1).numpy())[0]
+    print(f"{L} слоёв 3×3: RF измерено {rows.max() - rows.min() + 1}, формула {1 + L * 2}")
+```
+
+Результат запуска:
+
+```text
+in= 20 k=3 s=1 p=0 d=1: формула  18, PyTorch  18
+in= 20 k=3 s=2 p=1 d=1: формула  10, PyTorch  10
+in=224 k=7 s=2 p=3 d=1: формула 112, PyTorch 112
+in= 20 k=3 s=1 p=2 d=2: формула  20, PyTorch  20
+Conv2d(3→64, 3×3) параметров: 1792 (64·(3·9+1) = 1792)
+1 слоёв 3×3: RF измерено 3, формула 3
+2 слоёв 3×3: RF измерено 5, формула 5
+3 слоёв 3×3: RF измерено 7, формула 7
+5 слоёв 3×3: RF измерено 11, формула 11
+```
+
+```python
+# Семинар 3 в миниатюре: учим на центрированных цифрах, тестируем на сдвинутых
+from sklearn.datasets import load_digits
+digits = load_digits(); IM = digits.images.astype(np.float32) / 16; Y = digits.target
+def place(imgs, rng, jitter):
+    out = np.zeros((len(imgs), 1, 20, 20), np.float32)
+    for i, im in enumerate(imgs):
+        dy, dx = 6 + rng.integers(-jitter, jitter + 1, 2)
+        out[i, 0, dy:dy + 8, dx:dx + 8] = im
+    return out + 0.15 * rng.random(out.shape).astype(np.float32)
+idx = np.random.default_rng(0).permutation(len(Y)); tr, te = idx[:1300], idx[1300:]
+Xtr, Xc, Xs = place(IM[tr], np.random.default_rng(1), 0), place(IM[te], np.random.default_rng(2), 0), place(IM[te], np.random.default_rng(3), 4)
+
+mlp = nn.Sequential(nn.Flatten(), nn.Linear(400, 128), nn.ReLU(), nn.Linear(128, 64), nn.ReLU(), nn.Linear(64, 10))
+block = lambda c_in, c_out: [nn.Conv2d(c_in, c_out, 3, padding=1, bias=False), nn.BatchNorm2d(c_out), nn.ReLU()]
+cnn = nn.Sequential(*block(1, 32), nn.MaxPool2d(2), *block(32, 64), nn.MaxPool2d(2), *block(64, 64),
+                    nn.AdaptiveAvgPool2d(1), nn.Flatten(), nn.Linear(64, 10))      # голова: GAP + Linear
+for name, model in [("MLP", mlp), ("CNN", cnn)]:
+    opt = torch.optim.AdamW(model.parameters(), lr=3e-3); Xt, Yt = torch.tensor(Xtr), torch.tensor(Y[tr])
+    model.train()
+    for epoch in range(20):
+        for b in torch.randperm(1300).split(64):
+            loss = F.cross_entropy(model(Xt[b]), Yt[b]); opt.zero_grad(); loss.backward(); opt.step()
+    model.eval()
+    acc = lambda X: (model(torch.tensor(X)).argmax(1).numpy() == Y[te]).mean()
+    n_par = sum(p.numel() for p in model.parameters())
+    print(f"{name}: {n_par:6d} параметров | тест в центре {acc(Xc):.3f} | тест со сдвигом ±4: {acc(Xs):.3f}")
+```
+
+Результат запуска:
+
+```text
+MLP:  60234 параметров | тест в центре 0.968 | тест со сдвигом ±4: 0.133
+CNN:  56554 параметров | тест в центре 1.000 | тест со сдвигом ±4: 0.809
+```
+
+</details>
+
+<details>
+<summary><b>Что почитать / посмотреть</b></summary>
+
+- Учебник ML Яндекса: [Свёрточные нейросети](https://education.yandex.ru/handbook/ml/article/svyortochnye-nejroseti)
+- [CS231n: Convolutional Networks](https://cs231n.github.io/convolutional-networks/) · [Transfer Learning](https://cs231n.github.io/transfer-learning/) · курс [cs231n.stanford.edu](https://cs231n.stanford.edu/)
+- [A guide to convolution arithmetic](https://arxiv.org/abs/1603.07285) · [Computing Receptive Fields (distill)](https://distill.pub/2019/computing-receptive-fields) · [Image kernels (setosa.io)](https://setosa.io/ev/image-kernels/)
+- Статьи: [AlexNet](https://papers.nips.cc/paper/4824-imagenet-classification-with-deep-convolutional-neural-networks) · [VGG](https://arxiv.org/abs/1409.1556) · [GoogLeNet](https://arxiv.org/abs/1409.4842) · [ResNet](https://arxiv.org/abs/1512.03385) · [MobileNets](https://arxiv.org/abs/1704.04861) · [ZFNet](https://arxiv.org/abs/1311.2901) · [How transferable are features](https://arxiv.org/abs/1411.1792) · [Do Better ImageNet Models Transfer Better?](https://arxiv.org/abs/1805.08974)
+
+</details>
+
+<details>
+<summary><b>Источники курса</b></summary>
 
 - `Лекция_3_CNN_—_свёртки,_архитектуры,_transfer_learning.pptx` (DEEP LEARNING, день 3, 51 слайд).
 - `Семинар_3_Свёрточные_сети,_аугментации,_transfer_learning.ipynb`: цифры на холсте, Собель, формулы размера и параметров, рецептивное поле градиентом, MLP vs CNN, аугментации, transfer learning (3 режима), ResNet18 и препроцессинг.
 - `Повторение.pptx`, слайды 37–50.
 
+</details>
 
-<!-- materials:start -->
-**Файлы курса в репозитории:**
+<details>
+<summary><b>Литература к выводам</b></summary>
 
-- DL, лекция 3: CNN, архитектуры, transfer learning (лекция курса, файл в репозиторий не включён)
-- DL: повторение (обзор курса) (лекция курса, файл в репозиторий не включён)
-- [Семинар 3: свёрточные сети, аугментации, transfer learning](../../materials/seminars/16_Семинар_3_CNN_аугментации_transfer.ipynb)
-<!-- materials:end -->
+- Dumoulin V., Visin F. *A guide to convolution arithmetic for deep learning* — https://arxiv.org/abs/1603.07285
+- Araujo A. et al. *Computing Receptive Fields of CNNs* — https://distill.pub/2019/computing-receptive-fields
+- Luo W. et al. *Understanding the Effective Receptive Field* (2016); Zhang R. *Making Convolutional Networks Shift-Invariant Again* (2019)
+- Krizhevsky A. et al. *AlexNet* (2012); Simonyan K., Zisserman A. *VGG* — https://arxiv.org/abs/1409.1556; Szegedy C. et al. *GoogLeNet* — https://arxiv.org/abs/1409.4842
+- He K. et al. *ResNet* — https://arxiv.org/abs/1512.03385; *Identity Mappings in Deep Residual Networks* (2016); Howard A. et al. *MobileNets* — https://arxiv.org/abs/1704.04861
+- Yosinski J. et al. *How transferable are features in deep neural networks?* — https://arxiv.org/abs/1411.1792; Kornblith S. et al. *Do Better ImageNet Models Transfer Better?* — https://arxiv.org/abs/1805.08974
+- Zeiler M., Fergus R. *Visualizing and Understanding Convolutional Networks* — https://arxiv.org/abs/1311.2901
+
+</details>
+
+<details>
+<summary><b>Материалы курса и ссылки</b></summary>
+
+- **Лекции курса** (файлы в репозиторий не включены): DL, лекция 3: CNN, архитектуры, transfer learning · DL: повторение (обзор курса)
+- **Семинары:** [Семинар 3: свёрточные сети, аугментации, transfer learning](../../materials/seminars/16_Семинар_3_CNN_аугментации_transfer.ipynb)
+- **Видео и внешние курсы:** [Stanford CS231n — CNN for Visual Recognition](https://cs231n.stanford.edu/)
+
+</details>
 
 ---
 
-[← Шпаргалка](../../cheatsheet.ipynb) · [🔬 Выводы и математика →](deep.md) · [17. Семантическая сегментация →](../17_segmentation/README.md)
+[← 15. Обучение нейросетей: инициализация, оптимизаторы, регуляризация, нормализация](../15_nn_training/README.md) · [Оглавление курса](../../README.md) · [17. Семантическая сегментация →](../17_segmentation/README.md)

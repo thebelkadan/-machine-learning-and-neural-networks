@@ -1,12 +1,39 @@
-# 20. Рекуррентные сети: RNN, LSTM, GRU, предобработка текста, временные ряды
+# 20. Рекуррентные сети: RNN, LSTM, GRU
 
-[← Шпаргалка](../../cheatsheet.ipynb) · [Карта курса](../../README.md) · [🔬 Выводы и математика →](deep.md) · [← 19. Contrastive learning](../19_contrastive_embeddings/README.md) · [21. Эмбеддинги слов и токенизация →](../21_word_embeddings_tokenization/README.md)
+[Шпаргалка (ноутбук)](../../cheatsheet.ipynb) · [Оглавление курса](../../README.md)
 
----
+**Суть.** RNN — один и тот же блок, применённый к каждому элементу последовательности с переносом **скрытого состояния** $h_t$
+(разделение весов по времени, как свёртка — по пространству). Учится через **BPTT** — обычный backprop по развёрнутому графу. Проблема —
+градиент через $T$ шагов есть произведение $T$ якобианов: он **затухает** или **взрывается**. Взрыв лечат **клиппингом**, затухание —
+**гейтами** (LSTM/GRU: аддитивное обновление памяти, «шорткат» как в ResNet) и правильной инициализацией (bias forget-гейта ≈ 1…3).
+Для текста нужен пайплайн: токены → словарь (`<pad>`, `<unk>`) → индексы → `nn.Embedding` → паддинг в батче + длины.
 
-## Часть A. Идея и архитектуры
+| Термин | Определение |
+|---|---|
+| Скрытое состояние $h_t$ | «память» сети после $t$ шагов; одно для vanilla RNN/GRU, у LSTM ещё $c_t$ (cell state) |
+| BPTT / truncated BPTT | backprop через все шаги / отсекаем граф каждые $k$ шагов (`h = h.detach()`) |
+| Гейт | $\sigma(\cdot)\in(0,1)$ — поэлементный «кран»: сколько пропустить |
+| LSTM | гейты forget / input / output + кандидат; $c_t=f\odot c_{t-1}+i\odot\tilde c_t$ |
+| GRU | гейты update $z$ и reset $r$; нет отдельной $c_t$; на четверть меньше параметров, чем LSTM |
+| Teacher forcing | на обучении подаём на вход **истинный** предыдущий токен, а не свой прогноз |
+| Exposure bias | на тесте модель видит свои ошибки, которых не видела на обучении |
+| Bidirectional / stacked | два прохода (→ и ←), выходы конкатенируются / несколько слоёв друг над другом |
+| Packing | `pack_padded_sequence`: RNN не ходит по паддингу, $h_n$ — у последнего **реального** токена |
 
-### 1. Зачем отдельная архитектура для последовательностей
+$$
+h_t=\tanh(W_{xh}x_t+W_{hh}h_{t-1}+b),\qquad
+\frac{\partial h_T}{\partial h_k}=\prod_{t=k+1}^{T}\operatorname{diag}\big(1-h_t^2\big)\,W_{hh},\qquad
+c_t=f_t\odot c_{t-1}+i_t\odot\tilde c_t,\quad h_t=o_t\odot\tanh c_t
+$$
+
+## Конспект
+
+Разделы раскрываются по клику.
+
+**Часть A. Идея и архитектуры**
+
+<details>
+<summary><b>1. Зачем отдельная архитектура для последовательностей</b></summary>
 
 Текст, речь, временные ряды, видео, траектории имеют **переменную длину** и **порядок**. MLP требует вход фиксированного размера и не делит
 веса между позициями; свёртка видит только локальное окно. Рекуррентная сеть (RNN) применяет **один и тот же блок** к каждому элементу и
@@ -24,7 +51,10 @@
 Где применяли (и где RNN-идеи живут до сих пор): языковые модели, перевод, распознавание речи и рукописного текста, подписи к картинкам,
 visual question answering, генерация рукописного текста, прогноз временных рядов.
 
-### 2. Vanilla RNN
+</details>
+
+<details>
+<summary><b>2. Vanilla RNN</b></summary>
 
 $$
 h_t = \tanh(W_{xh}x_t + W_{hh}h_{t-1} + b_h),\qquad y_t = W_{hy}h_t + b_y ,\qquad h_0 = 0 .
@@ -36,7 +66,10 @@ $$
 
 Параметров: $H(D+H) + H$ (+ $H$ ещё раз в PyTorch, где два вектора bias `bias_ih` и `bias_hh`).
 
-### 3. Обучение: BPTT
+</details>
+
+<details>
+<summary><b>3. Обучение: BPTT</b></summary>
 
 **Backpropagation through time** — обычный backprop по развёрнутому графу: проход вперёд по всей последовательности, потом назад. Потери
 суммируются по шагам: $\mathcal L = \sum_t \mathcal L_t(\hat y_t, y_t)$, и градиент по общим весам — сумма вкладов всех шагов.
@@ -46,14 +79,17 @@ $$
   `h = h.detach()`. Градиент не видит зависимостей длиннее $k$, зато обучение возможно на бесконечном потоке.
 - Время: шаги **последовательные** — $T$ шагов нельзя распараллелить (главный минус против трансформера).
 
-### 4. Затухающие и взрывающиеся градиенты — главная проблема RNN
+</details>
+
+<details>
+<summary><b>4. Затухающие и взрывающиеся градиенты — главная проблема RNN</b></summary>
 
 $$
 \frac{\partial h_T}{\partial h_k} = \prod_{t=k+1}^{T} \operatorname{diag}\big(1 - h_t^2\big)\,W_{hh} .
 $$
 
 В обычной сети перемножаются **разные** матрицы, в RNN — **одна и та же** $W_{hh}$, то есть, по сути, возводится в степень. Собственные
-значения больше 1 — градиенты **взрываются**, меньше 1 — **затухают** экспоненциально (вывод — [deep.md §2](deep.md#2-произведение-якобианов-затухание-и-взрыв)).
+значения больше 1 — градиенты **взрываются**, меньше 1 — **затухают** экспоненциально (вывод — см. раздел «2. Произведение якобианов: затухание и взрыв»).
 Затухание опаснее: оно молчаливое — loss просто не учит дальние зависимости.
 
 | Против взрыва | Против затухания |
@@ -67,7 +103,10 @@ $$
 **Резервуарные вычисления** (Echo State Networks, Liquid State Machines): рекуррентную часть («резервуар») задают случайно с
 спектральным радиусом < 1, чтобы история «отзывалась эхом» и затухала, и **учат только выходной линейный слой** — градиентов через время нет.
 
-### 5. LSTM (Hochreiter & Schmidhuber, 1997)
+</details>
+
+<details>
+<summary><b>5. LSTM (Hochreiter & Schmidhuber, 1997)</b></summary>
 
 Два состояния: **cell state** $c_t$ — «конвейер памяти», и **hidden state** $h_t$ — выход ячейки. Ключевая идея: $c_t$ проходит через все
 шаги почти без преобразований — **только поэлементное умножение и сложение**, как шорткат в ResNet. Информация, которая должна «слабо
@@ -89,7 +128,10 @@ $$
 - **Peephole-связи** (Gers & Schmidhuber): гейты видят ещё и $c_{t-1}$ — «чтобы решить, что забыть, неплохо бы видеть, что забываем».
 - Параметров: $4\cdot[H(D+H)+H]$ — в 4 раза больше vanilla RNN (в PyTorch веса уложены блоками в порядке **i, f, g, o**: `weight_ih_l0` размера $4H\times D$).
 
-### 6. GRU (Cho et al., 2014)
+</details>
+
+<details>
+<summary><b>6. GRU (Cho et al., 2014)</b></summary>
 
 Упрощение LSTM: нет отдельной $c_t$, **update-гейт** $z$ объединяет forget и input, **reset-гейт** $r$ решает, сколько прошлого
 использовать при расчёте кандидата.
@@ -100,14 +142,17 @@ z_t = \sigma(W_z[h_{t-1}, x_t]),\quad r_t = \sigma(W_r[h_{t-1}, x_t]),\quad
 h_t = (1 - z_t)\odot h_{t-1} + z_t\odot\tilde h_t .
 $$
 
-> ⚠️ Конвенции разные: в статье Cho и в PyTorch $h_t = z\odot h_{t-1} + (1-z)\odot\tilde h_t$ (то есть $z\to1$ = «помнить»), у Olah и в
+> **Важно.** Конвенции разные: в статье Cho и в PyTorch $h_t = z\odot h_{t-1} + (1-z)\odot\tilde h_t$ (то есть $z\to1$ = «помнить»), у Olah и в
 > семинаре — наоборот. Кроме того, в PyTorch $r$ умножается **после** матрицы: $\tanh(W_{in}x + r\odot(W_{hn}h + b_{hn}))$.
 
 **LSTM или GRU?** Большие сравнения («LSTM: A Search Space Odyssey», Greff 2015; Jozefowicz 2015) не выявили явного победителя: GRU на
 четверть легче и быстрее, LSTM чуть мощнее на некоторых задачах; самое важное в LSTM — forget-гейт и его bias. Оптимальные
 гиперпараметры у них разные. На семинаре 7 GRU ≈ LSTM.
 
-### 7. Двунаправленные, глубокие и другие
+</details>
+
+<details>
+<summary><b>7. Двунаправленные, глубокие и другие</b></summary>
 
 - **Bidirectional RNN:** два независимых прохода → и ←, на каждом шаге конкатенация $[\overrightarrow h_t;\overleftarrow h_t]$. Нужна
   **вся последовательность заранее** — подходит для разметки, классификации, распознавания речи/рукописного текста, биоинформатики;
@@ -116,17 +161,21 @@ $$
 - **Многомерные RNN** (2D-рекуррентность по изображению), **Hierarchical Subsampling Networks** (Graves) — сжатие последовательности по
   уровням. Исторически важны, сейчас редки.
 
-### 8. Как классифицировать последовательность (many-to-one)
+</details>
+
+<details>
+<summary><b>8. Как классифицировать последовательность (many-to-one)</b></summary>
 
 Нужен выход фиксированной длины. Варианты: (1) $h$ **последнего реального** токена → классификатор (возможно, многослойный);
 (2) пулинг (mean/max) по всем $h_t$ с маской паддинга; (3) для bidirectional — конкатенация последнего $\overrightarrow h$ и первого
 $\overleftarrow h$; (4) attention-пулинг (тема 22).
 
----
+</details>
 
-## Часть B. RNN в PyTorch
+**Часть B. RNN в PyTorch**
 
-### 9. API и формы
+<details>
+<summary><b>9. API и формы</b></summary>
 
 ```python
 lstm = nn.LSTM(input_size=D, hidden_size=H, num_layers=2, bias=True,
@@ -142,7 +191,10 @@ out, (h_n, c_n) = lstm(x)          # x: [B, T, D] при batch_first=True, ин�
 - Вопрос «почему две матрицы 12×3 и два вектора длины 12 при `hidden_size=3`?»: четыре блока (i, f, g, o) × 3 = 12; `weight_ih` и `weight_hh`, `bias_ih` и `bias_hh`.
 - Шаговый режим: `out, hidden = lstm(x_t.view(1, 1, -1), hidden)` в цикле — так делают при генерации.
 
-### 10. Паддинг, длины, packing
+</details>
+
+<details>
+<summary><b>10. Паддинг, длины, packing</b></summary>
 
 Последовательности в батче разной длины: дополняем `<pad>` до максимальной (`pad_sequence`) и **передаём длины**. Без этого RNN
 пройдёт по паддингу, и состояние «испортится». Варианты:
@@ -161,7 +213,10 @@ last = out[torch.arange(B), lengths - 1]                        # при batch_f
 
 Для эффективности батчи собирают из последовательностей **похожей длины** (bucketing): меньше паддинга — меньше пустых вычислений.
 
-### 11. Инициализация (из лекции, в стиле Keras)
+</details>
+
+<details>
+<summary><b>11. Инициализация (из лекции, в стиле Keras)</b></summary>
 
 ```python
 for name, p in model.named_parameters():
@@ -173,7 +228,10 @@ for name, p in model.named_parameters():
             n = p.size(0); p.data[n // 4:n // 2].fill_(1.0)
 ```
 
-### 12. Пример: тегирование частей речи (many-to-many синхронный, из лекции)
+</details>
+
+<details>
+<summary><b>12. Пример: тегирование частей речи (many-to-many синхронный, из лекции)</b></summary>
 
 ```python
 class LSTMTagger(nn.Module):
@@ -187,7 +245,10 @@ class LSTMTagger(nn.Module):
         return F.log_softmax(self.hidden2tag(out.view(len(sentence), -1)), dim=1)   # [T, n_tags] → NLLLoss
 ```
 
-### 13. Пример: классификатор тональности (many-to-one, семинар 7)
+</details>
+
+<details>
+<summary><b>13. Пример: классификатор тональности (many-to-one, семинар 7)</b></summary>
 
 ```python
 class RNNClassifier(nn.Module):
@@ -216,11 +277,12 @@ class RNNClassifier(nn.Module):
 слабой модели (меньше словарь → меньше `<unk>` и редких токенов). LSTM с 3-й эпохи переобучается (train 0.88, test 0.67) — нужны
 регуляризация и ранняя остановка.
 
----
+</details>
 
-## Часть C. Приёмы обучения
+**Часть C. Приёмы обучения**
 
-### 14. Обучение генерации: teacher forcing и его альтернативы
+<details>
+<summary><b>14. Обучение генерации: teacher forcing и его альтернативы</b></summary>
 
 Языковая модель на RNN: на вход — предыдущий токен, на выходе — распределение следующего.
 
@@ -237,7 +299,10 @@ class RNNClassifier(nn.Module):
 **Когда остановить генерацию?** Спецтокен `<eos>` в словаре (модель сама предсказывает конец) или отдельный выход «вероятность
 окончания» — так можно генерировать и последовательности чисел. Ещё защита — лимит длины.
 
-### 15. Регуляризация RNN
+</details>
+
+<details>
+<summary><b>15. Регуляризация RNN</b></summary>
 
 | Метод | Идея |
 |---|---|
@@ -250,7 +315,10 @@ class RNNClassifier(nn.Module):
 | **LayerNorm** (Ba et al. 2016) | нормировка по признакам внутри объекта — не зависит от батча и длины; стандарт для RNN |
 | Weight tying | общие веса у входного эмбеддинга и выходного слоя языковой модели |
 
-### 16. Интерпретация
+</details>
+
+<details>
+<summary><b>16. Интерпретация</b></summary>
 
 - Karpathy, Johnson, Fei-Fei (2016): в символьной LSTM нашлись нейроны-«счётчики» позиции в строке, индикаторы «внутри кавычек»,
   «внутри комментария», глубины вложенности скобок.
@@ -258,20 +326,29 @@ class RNNClassifier(nn.Module):
 - **Sentiment neuron** (OpenAI, Radford et al., 2017): mLSTM, обученная просто предсказывать следующий символ отзывов Amazon, получила
   один нейрон, линейно кодирующий тональность; фиксируя его значение, можно генерировать позитивные или негативные тексты.
 
-### 17. Практические советы (из лекции)
+</details>
+
+<details>
+<summary><b>17. Практические советы (из лекции)</b></summary>
 
 1. Брать GRU или LSTM, не vanilla RNN.
 2. Ортогональная инициализация $W_{hh}$, bias forget-гейта ≈ 1, Adam, клиппинг градиента ≈ 1.
 3. Начинать с простой модели и маленького датасета — добиться переобучения; потом усложнять и регуляризовать.
 4. Смотреть на статистику данных и ответов модели (длины, классы, ошибки).
 
----
+</details>
 
-## Часть D. Предобработка текста (семинар 7, часть 1)
+**Часть D. Предобработка текста (семинар 7, часть 1)**
+
+<details>
+<summary><b>Предобработка текста (семинар 7, часть 1)</b></summary>
 
 Подробнее о векторизации и токенизации — в [теме 21](../21_word_embeddings_tokenization/README.md).
 
-### 18. Конвейер
+</details>
+
+<details>
+<summary><b>18. Конвейер</b></summary>
 
 1. **Нормализация:** `text.lower()`, удаление/замена символов регулярками.
 2. **Токенизация:** `text.split()`, `re.split`, `nltk.word_tokenize`; в современных моделях — subword (BPE/WordPiece, тема 21).
@@ -292,7 +369,10 @@ def preprocess(text):
     return [w for w in (morph.parse(t)[0].normal_form for t in text.split()) if w not in stop]
 ```
 
-### 19. Шпаргалка по регулярным выражениям (`re`)
+</details>
+
+<details>
+<summary><b>19. Шпаргалка по регулярным выражениям (`re`)</b></summary>
 
 | Функция | Что делает |
 |---|---|
@@ -312,7 +392,10 @@ def preprocess(text):
 
 Шаблоны пишите **raw-строками** `r'...'` — иначе `'\s'` даёт `SyntaxWarning` (в семинаре так и было).
 
-### 20. Словарь, специальные токены, Dataset и collate
+</details>
+
+<details>
+<summary><b>20. Словарь, специальные токены, Dataset и collate</b></summary>
 
 - Считаем частоты токенов на **train**, сортируем по убыванию, берём `max_size` (в семинаре 5000) самых частых.
 - Специальные токены: `<pad>` (индекс 0, паддинг), `<unk>` (индекс 1, слово вне словаря), `<sos>`/`<eos>` (начало/конец — для генерации).
@@ -330,7 +413,10 @@ def collate_fn(batch, pad_id=0):
 loader = DataLoader(train_ds, batch_size=64, shuffle=True, collate_fn=collate_fn)
 ```
 
-### 21. Ловушки предобработки (найдены в семинаре)
+</details>
+
+<details>
+<summary><b>21. Ловушки предобработки (найдены в семинаре)</b></summary>
 
 - `re.sub(r'[^\sa-zа-я]', '', text)` удаляет **«ё»** (она вне диапазона `а-я` в Unicode) и цифры — «всё» становится «вс».
 - Стоп-слова NLTK для английского содержат `not`, `no`, `nor`, `don't`: для **тональности** их удаление превращает «not good» в «good».
@@ -338,9 +424,12 @@ loader = DataLoader(train_ds, batch_size=64, shuffle=True, collate_fn=collate_fn
 - Словарь строится только по train; на тесте неизвестные слова → `<unk>`.
 - `pd.Series.replace({'neutral': 0, ...})` даёт `FutureWarning` о downcasting — надёжнее `.map(...)`.
 
----
+</details>
 
-## Часть E. Временные ряды (ноутбук `rnn-international-airline-passengers`)
+**Часть E. Временные ряды (ноутбук `rnn-international-airline-passengers`)**
+
+<details>
+<summary><b>Временные ряды (ноутбук `rnn-international-airline-passengers`)</b></summary>
 
 Месячные перевозки авиапассажиров 1949–1960 (144 точки, тыс. человек): **тренд** + **сезонность** с растущей амплитудой
 (мультипликативная). Ноутбук строит окна `window=10`, прогноз на `gap=2` шага вперёд, 5 слоёв `SimpleRNN` (Keras, ReLU, dropout 0.2),
@@ -360,16 +449,22 @@ loader = DataLoader(train_ds, batch_size=64, shuffle=True, collate_fn=collate_fn
 только по времени, без перемешивания; валидация — скользящим окном (`TimeSeriesSplit`, [тема 05](../05_validation/README.md)).
 Для честности гиперпараметры (`H`, число эпох) нужно выбирать на отдельном валидационном отрезке, а не на тесте.
 
----
+</details>
 
-## Часть F. Место RNN сегодня
+**Часть F. Место RNN сегодня**
+
+<details>
+<summary><b>Место RNN сегодня</b></summary>
 
 - Трансформер (темы 23–24) вытеснил RNN в NLP: обучение параллельно по позициям, прямой доступ к любому токену (путь длины 1 вместо $T$).
 - RNN выигрывают в **инференсе**: память $O(1)$ на шаг, без растущего KV-кэша. Поэтому идеи вернулись в линейных RNN и
   state-space-моделях (S4, Mamba, RWKV), которые обучаются параллельно, а генерируют рекуррентно.
 - На маленьких данных и для потоковых сигналов (сенсоры, онлайн-прогноз) GRU/LSTM — по-прежнему разумный бейзлайн.
 
-### Чек-лист
+</details>
+
+<details>
+<summary><b>Чек-лист</b></summary>
 
 - [ ] GRU/LSTM, а не vanilla RNN; `batch_first` указан явно.
 - [ ] Паддинг + длины; `pack_padded_sequence` для bidirectional или берём $h$ последнего реального токена.
@@ -378,34 +473,523 @@ loader = DataLoader(train_ds, batch_size=64, shuffle=True, collate_fn=collate_fn
 - [ ] Словарь и статистики нормировки — только по train.
 - [ ] Для рядов: сплит по времени, стационаризация, наивные бейзлайны.
 
----
+</details>
 
-## Что почитать / посмотреть
+**Математика и выводы**
 
-- 📘 Учебник ML Яндекса: [Нейросети для работы с последовательностями](https://education.yandex.ru/handbook/ml/article/nejroseti-dlya-raboty-s-posledovatelnostyami) (то же в треке [contest.yandex.ru](https://contest.yandex.ru/tracks/ml/deep-learning-architectures/neural-networks-for-sequences))
-- 📄 Шпаргалка Stanford CS230: [Recurrent Neural Networks](https://stanford.edu/~shervine/teaching/cs-230/cheatsheet-recurrent-neural-networks/)
-- 📄 Блоги: [C. Olah — Understanding LSTM Networks](http://colah.github.io/posts/2015-08-Understanding-LSTMs/) · [A. Karpathy — The Unreasonable Effectiveness of RNNs](http://karpathy.github.io/2015/05/21/rnn-effectiveness/) · [Smerity — Orthogonal init](https://smerity.com/articles/2016/orthogonal_init.html) · [Vanishing and exploding gradients (jefkine)](http://www.jefkine.com/general/2018/05/21/2018-05-21-vanishing-and-exploding-gradient-problems/) · [Обзор dropout в RNN](https://adriangcoder.medium.com/a-review-of-dropout-as-applied-to-rnns-72e79ecd5b7b) · [OpenAI — Sentiment neuron](https://openai.com/blog/unsupervised-sentiment-neuron/)
-- 📄 Статьи: [Hochreiter & Schmidhuber 1997 (LSTM)](https://www.bioinf.jku.at/publications/older/2604.pdf) · [Cho et al. 2014 (GRU)](https://arxiv.org/abs/1406.1078) · [Pascanu et al. 2013 — On the difficulty of training RNNs](https://arxiv.org/abs/1211.5063) · [Greff et al. — LSTM: A Search Space Odyssey](https://arxiv.org/abs/1503.04069) · [Jozefowicz et al. 2015](http://proceedings.mlr.press/v37/jozefowicz15.pdf) · [Zaremba 2014](https://arxiv.org/abs/1409.2329) · [Gal & Ghahramani 2016](https://arxiv.org/abs/1512.05287) · [Semeniuta 2016](https://arxiv.org/abs/1603.05118) · [Curriculum Dropout](https://arxiv.org/abs/1703.06229) · [Fraternal Dropout](https://arxiv.org/abs/1711.00066) · [Laurent 2015 (BN-RNN)](https://arxiv.org/abs/1510.01378) · [Cooijmans 2016 (Recurrent BN)](https://arxiv.org/abs/1603.09025) · [Scheduled Sampling](https://arxiv.org/abs/1506.03099) · [Professor Forcing](https://arxiv.org/abs/1610.09038) · [Karpathy 2015 — Visualizing RNNs](https://arxiv.org/abs/1506.02078) · [Li 2015 — Visualizing neural models in NLP](https://arxiv.org/abs/1506.01066) · [Salehinejad — Recent Advances in RNNs (обзор)](https://arxiv.org/abs/1801.01078) · [Lukoševičius & Jaeger — Reservoir computing approaches](https://doi.org/10.1016/j.cosrev.2009.03.005) · [A. Graves — Supervised Sequence Labelling with RNNs](https://www.cs.toronto.edu/~graves/preprint.pdf) · [J. Guo — BPTT notes](http://ir.hit.edu.cn/~jguo/docs/notes/bptt.pdf)
-- 📄 Документация: [torch.nn.LSTM](https://pytorch.org/docs/stable/generated/torch.nn.LSTM.html) · [Sequence models tutorial (LSTMTagger)](https://pytorch.org/tutorials/beginner/nlp/sequence_models_tutorial.html) · [Seq2seq translation tutorial](https://pytorch.org/tutorials/intermediate/seq2seq_translation_tutorial.html)
-- 📘 Книги: [Deep Learning Book, гл. 10](https://www.deeplearningbook.org/) · 📄 [Distill.pub](https://distill.pub/) · [G. Sapunov — Multidimensional RNN](https://www.slideshare.net/grigorysapunov/multidimensional-rnn)
+<details>
+<summary><b>1. BPTT для vanilla RNN</b></summary>
 
-## Источники курса
+Модель: $a_t = W_{xh}x_t + W_{hh}h_{t-1} + b$, $h_t = \tanh(a_t)$, $\hat y_t = \operatorname{softmax}(W_{hy}h_t + c)$, потери
+$\mathcal L = \sum_{t=1}^{T}\mathcal L_t$. Обозначим $\delta_t = \partial\mathcal L/\partial h_t$ — полный градиент по состоянию (через
+текущий выход **и** через все будущие шаги), $g_t = \partial\mathcal L/\partial a_t$.
+
+$h_t$ влияет на $\mathcal L_t$ напрямую и на будущее через $a_{t+1}$:
+
+$$
+\delta_t = \frac{\partial\mathcal L_t}{\partial h_t} + W_{hh}^{\top}g_{t+1},\qquad
+g_t = \delta_t\odot\big(1 - h_t^2\big),\qquad \delta_{T+1}\equiv 0 ,
+$$
+
+где $\partial\mathcal L_t/\partial h_t = W_{hy}^{\top}(\hat y_t - y_t)$ для кросс-энтропии с softmax. Рекурсия идёт **назад во времени**.
+Веса общие, поэтому градиенты по ним — суммы по шагам:
+
+$$
+\frac{\partial\mathcal L}{\partial W_{hh}} = \sum_{t=1}^{T} g_t\,h_{t-1}^{\top},\qquad
+\frac{\partial\mathcal L}{\partial W_{xh}} = \sum_{t=1}^{T} g_t\,x_t^{\top},\qquad
+\frac{\partial\mathcal L}{\partial b} = \sum_{t=1}^{T} g_t ,\qquad
+\frac{\partial\mathcal L}{\partial W_{hy}} = \sum_{t=1}^{T}(\hat y_t - y_t)\,h_t^{\top} .
+$$
+
+**Truncated BPTT** с окном $k$: рекурсию для $\delta$ обрывают через $k$ шагов (в коде — `h = h.detach()` между кусками). Получается
+смещённая оценка градиента: вклады зависимостей длиннее $k$ просто отсутствуют.
+
+</details>
+
+<details>
+<summary><b>2. Произведение якобианов: затухание и взрыв</b></summary>
+
+Вклад шага $k$ в градиент потерь на шаге $T$ проходит через
+
+$$
+\frac{\partial h_T}{\partial h_k} = \prod_{t=k+1}^{T}\frac{\partial h_t}{\partial h_{t-1}}
+= \prod_{t=k+1}^{T}\operatorname{diag}\big(\tanh'(a_t)\big)\,W_{hh} .
+$$
+
+**Линейный случай** ($\tanh$ убрали): $\partial h_T/\partial h_k = W_{hh}^{T-k}$. Если $W_{hh} = Q\Lambda Q^{-1}$, то
+$W_{hh}^{n} = Q\Lambda^{n}Q^{-1}$ — компонента вдоль собственного вектора умножается на $\lambda^{n}$:
+
+- $\lvert\lambda\rvert < 1$: экспоненциальное убывание ($0.9^{50}\approx 0.005$) — **затухание**;
+- $\lvert\lambda\rvert > 1$: экспоненциальный рост ($1.1^{50}\approx 117$) — **взрыв**;
+- собственные значения случайны — дисперсия нарастает с длиной.
+
+**С нелинейностью** (Pascanu, Mikolov, Bengio, 2013). Пусть $\lvert\tanh'\rvert\le\gamma$ ($\gamma = 1$ для $\tanh$, $\frac14$ для
+сигмоиды), $\sigma_{\max}$ — наибольшее сингулярное число $W_{hh}$. Тогда
+
+$$
+\Big\lVert\frac{\partial h_T}{\partial h_k}\Big\rVert \le \prod_{t=k+1}^{T}\lVert\operatorname{diag}(\tanh'(a_t))\rVert\,\lVert W_{hh}\rVert
+\le (\gamma\,\sigma_{\max})^{T-k} .
+$$
+
+Значит, $\sigma_{\max} < 1/\gamma$ — **достаточное** условие затухания; $\rho(W_{hh}) > 1/\gamma$ — **необходимое** (но не достаточное)
+условие взрыва. Насыщение $\tanh$ ($\tanh'\to0$) только усиливает затухание.
+
+**Почему это мешает учиться.** Полный градиент
+
+$$
+\frac{\partial\mathcal L_T}{\partial W} = \sum_{k\le T}\frac{\partial\mathcal L_T}{\partial h_T}\,\frac{\partial h_T}{\partial h_k}\,\frac{\partial^{+}h_k}{\partial W}
+$$
+
+(где $\partial^{+}$ — «непосредственная» производная шага $k$) — сумма вкладов разной «дальности». При затухании дальние слагаемые
+экспоненциально малы по сравнению с ближними, и оптимизатор видит только короткие зависимости. При взрыве один шаг уводит веса
+далеко («обрыв» на поверхности потерь).
+
+**Ортогональная инициализация:** у ортогональной $W$ все $\lvert\lambda\rvert = 1$ и $\lVert Wv\rVert = \lVert v\rVert$ — в линейном режиме
+норма сигнала сохраняется на любой глубине. Нелинейность всё равно немного сжимает ($\tanh'\le1$), но старт из «нейтральной» точки.
+
+</details>
+
+<details>
+<summary><b>3. Клиппинг градиента</b></summary>
+
+Клиппинг по норме (Pascanu et al., 2013):
+
+$$
+g \leftarrow g\cdot\min\Big(1,\;\frac{\tau}{\lVert g\rVert}\Big).
+$$
+
+Направление сохраняется, ограничивается только длина шага — защита от «обрывов»: в узкой области поверхности потерь градиент
+огромен, и шаг SGD без ограничения выбросил бы параметры далеко. Клиппинг **по значению** (`clip_grad_value_`) режет каждую координату
+отдельно и меняет направление. `torch.nn.utils.clip_grad_norm_` возвращает норму **до** клиппинга — её полезно логировать: частые
+срабатывания означают слишком большой learning rate. Против затухания клиппинг бесполезен.
+
+</details>
+
+<details>
+<summary><b>4. Почему LSTM не затухает: путь через cell state</b></summary>
+
+$$
+c_t = f_t\odot c_{t-1} + i_t\odot\tilde c_t \quad\Rightarrow\quad
+\frac{\partial c_t}{\partial c_{t-1}} = \operatorname{diag}(f_t) + \underbrace{(\ldots)}_{\text{через } h_{t-1}\text{ в } f_t,\,i_t,\,\tilde c_t} .
+$$
+
+По **прямому** пути
+
+$$
+\frac{\partial c_T}{\partial c_k}\Big|_{\text{прямой}} = \prod_{t=k+1}^{T}\operatorname{diag}(f_t)
+$$
+
+нет ни умножения на матрицу весов, ни производной $\tanh$, только поэлементные гейты. Если сеть выучила $f\approx1$ для нужных
+координат, градиент течёт почти без потерь. Это аналог шортката ResNet: $c_t = c_{t-1} + \Delta_t$ при $f=1$.
+
+- **LSTM 1997** не имела forget-гейта: $f\equiv1$, $\partial c_T/\partial c_k = I$ — «constant error carousel». Gers et al. (2000)
+  добавили forget-гейт: без сброса память на длинном потоке переполняется.
+- **Время памяти.** При постоянном $f$ вклад шага $k$ затухает как $f^{\,T-k}$; характерное время $\tau = -1/\ln f\approx 1/(1-f)$:
+
+| $b_f$ | $f = \sigma(b_f)$ | $\tau$, шагов | $f^{50}$ |
+|---|---|---|---|
+| 0 | 0.50 | 1.4 | $9\cdot10^{-16}$ |
+| 1 | 0.73 | 3.2 | $1.6\cdot10^{-7}$ |
+| 3 | 0.953 | 21 | 0.09 |
+| 5 | 0.993 | 149 | 0.71 |
+
+Отсюда рекомендация $b_f = 1$ (Gers 2000, Jozefowicz 2015) и больше для длинных зависимостей. **Chrono-инициализация** (Tallec &
+Ollivier, 2018): $b_f\sim\ln\mathcal U[1, T_{\max}-1]$, $b_i = -b_f$. Тогда $f = \frac{u}{1+u}$, $\tau\approx 1+u$ — времена памяти
+нейронов равномерно покрывают диапазон до $T_{\max}$. В примере шпаргалки при $T=50$: LSTM с $b_f=0$ — accuracy 0.51 (угадывание),
+с $b_f=3$ — 0.995.
+
+</details>
+
+<details>
+<summary><b>5. GRU как обучаемый «протекающий» интегратор</b></summary>
+
+Протекающий нейрон (leaky unit): $h_t = \alpha h_{t-1} + (1-\alpha)\tanh(Wx_t + Uh_{t-1})$ с фиксированным $\alpha$ — это экспоненциальное
+сглаживание, $\partial h_t/\partial h_{t-1}\approx\alpha I$. GRU (в конвенции PyTorch и Cho et al.)
+
+$$
+h_t = z_t\odot h_{t-1} + (1 - z_t)\odot\tilde h_t,\qquad
+\tilde h_t = \tanh\big(W_{in}x_t + b_{in} + r_t\odot(W_{hn}h_{t-1} + b_{hn})\big)
+$$
+
+делает $\alpha$ **обучаемым, своим для каждого нейрона и шага**: $z_t\to1$ — «держать память», градиент идёт через $\operatorname{diag}(z_t)$.
+Reset-гейт $r_t\to0$ позволяет кандидату «забыть» прошлое и смотреть только на вход (начало новой фразы). Bias update-гейта, сдвинутый
+к «помнить» ($z\approx1$), даёт тот же эффект, что $b_f$ у LSTM.
+
+</details>
+
+<details>
+<summary><b>6. Число параметров</b></summary>
+
+Для входа размерности $D$ и скрытого $H$ один «блок» — это $W\in\mathbb R^{H\times D}$, $U\in\mathbb R^{H\times H}$ и bias:
+
+| Ячейка | Блоков | Параметров (PyTorch: два bias) | $D=4,\ H=5$ |
+|---|---|---|---|
+| RNN | 1 | $H(D+H) + 2H$ | 55 |
+| GRU | 3 (r, z, n) | $3\,[H(D+H) + 2H]$ | 165 |
+| LSTM | 4 (i, f, g, o) | $4\,[H(D+H) + 2H]$ | 220 |
+
+Bidirectional удваивает число параметров слоя; во втором и следующих слоях вход имеет размер $H\cdot n_{\text{dirs}}$. В «бумажной»
+формулировке bias один — $H(D+H) + H$ на блок; второй bias в PyTorch избыточен (сумма двух векторов), но остался ради совместимости с cuDNN.
+
+</details>
+
+<details>
+<summary><b>7. Teacher forcing = максимум правдоподобия, и откуда exposure bias</b></summary>
+
+Цепное правило — точная факторизация: $p(y_{1:T}) = \prod_t p(y_t\mid y_{<t})$. Логарифм правдоподобия обучающей последовательности
+
+$$
+\log p_\theta(y_{1:T}) = \sum_{t=1}^{T}\log p_\theta\big(y_t\mid y^{\text{true}}_{<t}\big)
+$$
+
+в каждом слагаемом условен на **истинный** префикс — это и есть teacher forcing. Значит, teacher forcing — не эвристика, а обычный
+MLE, и все шаги считаются за один проход (в трансформере — параллельно).
+
+**Exposure bias:** на обучении префиксы берутся из распределения данных, на генерации — из распределения модели. Ошибка на шаге $t$
+сдвигает вход шага $t+1$ туда, где модель не обучалась, и ошибки накапливаются. В теории имитационного обучения (Ross & Bagnell, 2010)
+это даёт рост суммарной ошибки как $O(T^{2}\varepsilon)$ вместо $O(T\varepsilon)$ при обучении на собственных траекториях.
+
+**Scheduled sampling** (Bengio et al., 2015): на шаге обучения $i$ подаём истинный токен с вероятностью $\varepsilon_i$:
+
+$$
+\varepsilon_i = \max(\varepsilon_{\min}, k - ci)\ \text{(линейно)},\qquad
+\varepsilon_i = k^{\,i},\ k<1\ \text{(экспоненциально)},\qquad
+\varepsilon_i = \frac{k}{k + e^{i/k}},\ k\ge1\ \text{(обратная сигмоида)} .
+$$
+
+Оговорка: Huszár (2015) показал, что такая цель — несостоятельная оценка: в пределе она не восстанавливает истинное распределение.
+На практике в больших моделях exposure bias лечат стратегиями декодирования и дообучением на своих генерациях (RL-подходы, темы 24–25).
+
+</details>
+
+<details>
+<summary><b>8. Dropout во времени</b></summary>
+
+Если на каждом шаге брать **новую** маску на рекуррентной связи, шум накапливается за $T$ шагов и разрушает память; поэтому Zaremba
+(2014) применяет dropout только к нерекуррентным связям. **Вариационный dropout** (Gal & Ghahramani, 2016) берёт **одну** маску на всю
+последовательность:
+
+$$
+h_t = \tanh\big(W(x_t\odot m_x) + U(h_{t-1}\odot m_h)\big),\qquad m_x, m_h\ \text{фиксированы для всех } t ,
+$$
+
+что соответствует приближённому байесовскому выводу с одним сэмплом весов на последовательность (тот же сэмпл $W, U$ на всех шагах).
+**Recurrent dropout** (Semeniuta, 2016): $c_t = f_t\odot c_{t-1} + i_t\odot d(\tilde c_t)$ — шумит только добавка, память $c_{t-1}$ не
+трогается. **Zoneout:** $h_t = m\odot h_{t-1} + (1-m)\odot h_t^{\text{new}}$ — часть нейронов случайно «замирает», градиент через них
+проходит как через тождество.
+
+</details>
+
+<details>
+<summary><b>9. Нормировки</b></summary>
+
+**BatchNorm** в RNN неудобен: статистики должны быть **свои на каждом шаге** (Cooijmans, 2016), а для длин больше, чем в обучении,
+статистик нет; применение только к «вертикальным» связям (Laurent, 2015) помогает слабо. **LayerNorm** (Ba et al., 2016) нормирует
+по признакам **внутри объекта и шага**:
+
+$$
+\operatorname{LN}(a) = \gamma\odot\frac{a - \mu}{\sqrt{s^{2} + \epsilon}} + \beta,\qquad \mu = \frac1H\sum_j a_j,\quad s^{2} = \frac1H\sum_j(a_j - \mu)^2 ,
+$$
+
+не зависит ни от батча, ни от длины. Применяется к предактивациям гейтов; так же устроены нормировки в трансформерах (тема 23).
+
+</details>
+
+<details>
+<summary><b>10. Сложность: RNN против self-attention</b></summary>
+
+| | RNN-слой | Self-attention |
+|---|---|---|
+| Вычисления на слой | $O(T\cdot H^{2})$ | $O(T^{2}\cdot d)$ |
+| Последовательных операций | $O(T)$ | $O(1)$ |
+| Длина пути между позициями $i, j$ | $O(\lvert i-j\rvert)$ | $O(1)$ |
+| Генерация одного токена | $O(H^{2})$, память $O(H)$ | $O(T\cdot d)$, KV-кэш $O(T\cdot d)$ |
+
+Обучение RNN не параллелится по времени, а дальние зависимости идут длинным путём (затухание). Зато генерация дешёвая и с
+постоянной памятью — отсюда интерес к линейным рекуррентностям и state-space-моделям, у которых переход **линеен** по $h$, поэтому
+рекурсию можно развернуть в свёртку или параллельный scan для обучения.
+
+</details>
+
+<details>
+<summary><b>11. Временные ряды: почему log и сезонные разности</b></summary>
+
+Ряд авиапассажиров — **мультипликативный**: $y_t = \text{тренд}_t\cdot\text{сезон}_t\cdot\varepsilon_t$ (амплитуда сезонности растёт с
+уровнем). Логарифм делает его аддитивным: $\log y_t = \log\text{тренд}_t + \log\text{сезон}_t + \log\varepsilon_t$. Сезонная разность
+
+$$
+d_t = \log y_t - \log y_{t-12}\approx\frac{y_t - y_{t-12}}{y_{t-12}}
+$$
+
+— годовой темп роста: сезонность сокращается, линейный (в логарифмах) тренд превращается в константу, и ряд становится примерно
+**стационарным**. Модели остаётся предсказать $\hat d_t$, а прогноз восстанавливается как $\hat y_t = y_{t-12}\,e^{\hat d_t}$.
+
+- **Сезонный наивный** прогноз — это $\hat d_t = 0$; «сезонный × годовой рост» — $\hat d_t = d_{t-1}$. Нейросеть на $d$ учит поправку к
+  ним, и её стоит сравнивать именно с ними.
+- На сыром ряде тестовые значения (до 622) выходят за диапазон train (до 467): модель с насыщающимися активациями не может
+  экстраполировать, и нормировка, подогнанная на train, не спасает.
+- $e^{\hat d}$ от несмещённого прогноза логарифма даёт **медиану**, а не среднее; поправка при нормальных остатках — множитель $e^{\sigma^{2}/2}$.
+- Масштабно-независимая метрика **MASE**: MAE модели, делённое на MAE сезонного наивного прогноза на train; MASE < 1 — лучше наивного.
+
+</details>
+
+<details>
+<summary><b>Вопросы с собеседований</b></summary>
+
+Сначала ответьте сами, потом раскройте ответ.
+
+<details>
+<summary>Почему в RNN градиенты затухают/взрываются сильнее, чем в MLP той же глубины?</summary>
+
+перемножается **одна и та же** $W_{hh}$: спектральный радиус $<1$ — затухание, $>1$ — взрыв (степень матрицы).
+
+</details>
+
+<details>
+<summary>Почему LSTM помогает?</summary>
+
+$\partial c_t/\partial c_{t-1}\approx\operatorname{diag}(f_t)$ — без умножения на $W$; при $f\approx1$ градиент течёт как по шорткату. Но **при $b_f=0$** $f\approx0.5$ и всё равно затухает — отсюда инициализация $b_f=1$ (и больше).
+
+</details>
+
+<details>
+<summary>Клиппинг решает затухание?</summary>
+
+нет, только взрыв. Затухание — гейты, инициализация (ортогональная $W_{hh}$), шорткаты.
+
+</details>
+
+<details>
+<summary>`nn.LSTM(..., dropout=0.3)` с `num_layers=1` — что будет?</summary>
+
+ничего (warning): dropout ставится только **между** слоями.
+
+</details>
+
+<details>
+<summary>Что возвращает `nn.LSTM`?</summary>
+
+`output` — $h_t$ верхнего слоя на всех шагах; `(h_n, c_n)` — последние состояния всех слоёв. По умолчанию формат `[T, B, D]` (`batch_first=False`)!
+
+</details>
+
+<details>
+<summary>Bidirectional + паддинг без packing?</summary>
+
+обратный проход начинается с `<pad>`; нужен `pack_padded_sequence` или маскирование.
+
+</details>
+
+<details>
+<summary>Удалять стоп-слова для тональности?</summary>
+
+осторожно: в NLTK-списке есть `not`, `no`, `nor` — «not good» превращается в «good».
+
+</details>
+
+<details>
+<summary>Временной ряд: `MinMaxScaler` на всём ряде, `shuffle` и случайный сплит</summary>
+
+утечка будущего; с трендом тест выходит за диапазон train. Сначала — наивные бейзлайны.
+
+</details>
+
+</details>
+
+<details>
+<summary><b>Дополнительно: детали</b></summary>
+
+- **Режимы:** one-to-many (подпись к картинке), many-to-one (тональность: берём $h$ последнего реального токена или пулинг по всем), many-to-many синхронный (теги частей речи), many-to-many через encoder–decoder (перевод → тема 22).
+- **GRU:** $z=\sigma(\cdot)$, $r=\sigma(\cdot)$, $\tilde h=\tanh(W x+U(r\odot h_{t-1}))$, $h_t=(1-z)\odot h_{t-1}+z\odot\tilde h$ (в PyTorch роли $z$ и $1-z$ переставлены — смотрите документацию).
+- **Регуляризация:** dropout только на нерекуррентных связях (Zaremba 2014) или одна маска на все шаги (вариационный, Gal 2016); recurrent dropout на кандидате (Semeniuta 2016); zoneout; LayerNorm вместо BatchNorm.
+- **Обучение генерации:** teacher forcing → быстро, но exposure bias; scheduled sampling — постепенно подмешиваем свои прогнозы; professor forcing — дискриминатор на скрытых состояниях.
+- **Семинар 7 (тональность твитов, 3 класса, macro-F1):** RNN 0.41 → LSTM 0.67, GRU 0.67; с чисткой текста — RNN 0.63, LSTM 0.70, GRU 0.68: предобработка сильнее всего помогает слабой модели.
+- **Советы лекции:** GRU/LSTM, ортогональная инициализация, $b_f\approx1$, Adam, клиппинг ≈ 1; начинать с маленькой модели и маленьких данных (добиться переобучения), потом регуляризация.
+
+</details>
+
+<details>
+<summary><b>Примеры кода (с результатами запуска)</b></summary>
+
+Запустить их можно в ноутбуке [`cheatsheet.ipynb`](../../cheatsheet.ipynb).
+
+```python
+import numpy as np, torch, torch.nn as nn
+from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence
+torch.manual_seed(0)
+
+# 1) Формы и «LSTM руками» == nn.LSTM. Порядок блоков в весах PyTorch: i, f, g, o
+B, T, D, H = 3, 7, 4, 5
+lstm = nn.LSTM(D, H, batch_first=True)
+x = torch.randn(B, T, D)
+out, (h_n, c_n) = lstm(x)
+print("out:", tuple(out.shape), " h_n:", tuple(h_n.shape), " c_n:", tuple(c_n.shape), "  (h_n: [слои·направления, B, H])")
+W_ih, W_hh, b = lstm.weight_ih_l0, lstm.weight_hh_l0, lstm.bias_ih_l0 + lstm.bias_hh_l0
+h = c = torch.zeros(B, H)
+for t in range(T):
+    i, f, g, o = (x[:, t] @ W_ih.T + h @ W_hh.T + b).chunk(4, dim=1)
+    c = torch.sigmoid(f) * c + torch.sigmoid(i) * torch.tanh(g)
+    h = torch.sigmoid(o) * torch.tanh(c)
+print("ручной LSTM совпал:", torch.allclose(h, h_n[0], atol=1e-6), "| out[:, -1] == h_n:", torch.allclose(out[:, -1], h_n[0]))
+for cls in (nn.RNN, nn.GRU, nn.LSTM):
+    n = sum(p.numel() for p in cls(D, H).parameters())
+    print(f"{cls.__name__:4s}: {n:3d} параметров = {n // (H * (D + H) + 2 * H)} × [H(D+H) + 2H]")
+
+# 2) Паддинг: без packing h_n короткой фразы «прошёл» по нулям
+lens = torch.tensor([5, 2, 4])
+padded = pad_sequence([torch.randn(n, D) for n in lens], batch_first=True)       # (3, 5, D)
+out_pad, (h_pad, _) = lstm(padded)
+_, (h_pack, _) = lstm(pack_padded_sequence(padded, lens, batch_first=True, enforce_sorted=False))
+print("h_n без packing == с packing (у фразы длины 2):", torch.allclose(h_pad[0, 1], h_pack[0, 1]))
+print("out[len-1] == h_n(packed):", torch.allclose(out_pad[torch.arange(3), lens - 1], h_pack[0], atol=1e-6))
+```
+
+Результат запуска:
+
+```text
+out: (3, 7, 5)  h_n: (1, 3, 5)  c_n: (1, 3, 5)   (h_n: [слои·направления, B, H])
+ручной LSTM совпал: True | out[:, -1] == h_n: True
+RNN :  55 параметров = 1 × [H(D+H) + 2H]
+GRU : 165 параметров = 3 × [H(D+H) + 2H]
+LSTM: 220 параметров = 4 × [H(D+H) + 2H]
+h_n без packing == с packing (у фразы длины 2): False
+out[len-1] == h_n(packed): True
+```
+
+```python
+# Затухание градиента и роль bias forget-гейта. Задача: по последовательности длины T вспомнить знак ПЕРВОГО элемента
+def set_gate_bias(rnn, b):                       # LSTM: блоки i,f,g,o → f = [H:2H];  GRU: r,z,n → z = [H:2H], h' = (1-z)·n + z·h
+    H = rnn.hidden_size
+    if isinstance(rnn, (nn.LSTM, nn.GRU)):
+        with torch.no_grad(): rnn.bias_ih_l0[H:2 * H] += b
+
+def grad_ratio(cls, T, b):                       # ||∂h_T/∂x_1|| / ||∂h_T/∂x_T|| при инициализации
+    torch.manual_seed(0); m = cls(8, 64, batch_first=True); set_gate_bias(m, b)
+    x = torch.randn(32, T, 8, requires_grad=True); m(x)[0][:, -1].sum().backward()
+    return (x.grad[:, 0].norm(dim=1).mean() / x.grad[:, -1].norm(dim=1).mean()).item()
+for cls, b in ((nn.RNN, 0), (nn.LSTM, 0), (nn.LSTM, 3), (nn.GRU, 3)):
+    print(f"{cls.__name__:4s} bias={b}: " + "  ".join(f"T={T}: {grad_ratio(cls, T, b):.0e}" for T in (20, 50, 100)))
+
+class Clf(nn.Module):
+    def __init__(self, cls, b, H=32):
+        super().__init__(); self.rnn, self.fc = cls(1, H, batch_first=True), nn.Linear(H, 2); set_gate_bias(self.rnn, b)
+    def forward(self, x): return self.fc(self.rnn(x)[0][:, -1])
+T = 50
+for cls, b in ((nn.RNN, 0), (nn.LSTM, 0), (nn.LSTM, 3), (nn.GRU, 3)):
+    torch.manual_seed(0); g = torch.Generator().manual_seed(1)
+    m = Clf(cls, b); opt = torch.optim.Adam(m.parameters(), 1e-2)
+    for step in range(400):
+        x = torch.randn(128, T, 1, generator=g); y = (x[:, 0, 0] > 0).long()
+        loss = nn.functional.cross_entropy(m(x), y); opt.zero_grad(); loss.backward()
+        nn.utils.clip_grad_norm_(m.parameters(), 1.0); opt.step()            # клиппинг — стандарт для RNN
+    x = torch.randn(2000, T, 1, generator=g); y = (x[:, 0, 0] > 0).long()
+    with torch.no_grad(): print(f"T={T}, {cls.__name__} bias={b}: accuracy {(m(x).argmax(1) == y).float().mean():.3f}")
+```
+
+Результат запуска:
+
+```text
+RNN  bias=0: T=20: 8e-05  T=50: 3e-11  T=100: 5e-22
+LSTM bias=0: T=20: 3e-04  T=50: 2e-10  T=100: 4e-20
+LSTM bias=3: T=20: 2e+00  T=50: 3e+00  T=100: 3e+00
+GRU  bias=3: T=20: 5e-01  T=50: 1e-01  T=100: 2e-02
+T=50, RNN bias=0: accuracy 0.487
+T=50, LSTM bias=0: accuracy 0.513
+T=50, LSTM bias=3: accuracy 0.995
+T=50, GRU bias=3: accuracy 0.997
+```
+
+```python
+# Временной ряд (international-airline-passengers): one-step прогноз на последние 36 месяцев. Сначала бейзлайны!
+y = np.array([112,118,132,129,121,135,148,148,136,119,104,118,115,126,141,135,125,149,170,170,158,133,114,140,145,150,178,163,
+    172,178,199,199,184,162,146,166,171,180,193,181,183,218,230,242,209,191,172,194,196,196,236,235,229,243,264,272,237,211,180,
+    201,204,188,235,227,234,264,302,293,259,229,203,229,242,233,267,269,270,315,364,347,312,274,237,278,284,277,317,313,318,374,
+    413,405,355,306,271,306,315,301,356,348,355,422,465,467,404,347,305,336,340,318,362,348,363,435,491,505,404,359,310,337,360,
+    342,406,396,420,472,548,559,463,407,362,405,417,391,419,461,472,535,622,606,508,461,390,432], dtype=np.float32)
+TEST, W = 36, 24
+cut = len(y) - TEST; idx = np.arange(cut, len(y))                       # сплит строго по времени
+rmse = lambda p: float(np.sqrt(np.mean((p - y[idx]) ** 2)))
+ly = np.log(y); d = np.r_[np.zeros(12, np.float32), ly[12:] - ly[:-12]]  # d = сезонная разность log (≈ годовой рост)
+
+def gru_forecast(s, start, epochs=100, H=4):
+    mu, sd = s[start:cut].mean(), s[start:cut].std(); z = (s - mu) / sd   # нормировка ТОЛЬКО по train
+    tt = np.arange(start + W, len(z)); tr = tt < cut
+    X = torch.tensor(np.stack([z[t - W:t] for t in tt])[:, :, None]); Y = torch.tensor(z[tt])
+    torch.manual_seed(0); gru, head = nn.GRU(1, H, batch_first=True), nn.Linear(H, 1)
+    opt = torch.optim.Adam([*gru.parameters(), *head.parameters()], 1e-2)
+    f = lambda x: head(gru(x)[0][:, -1]).squeeze(1)
+    for _ in range(epochs):
+        loss = ((f(X[tr]) - Y[tr]) ** 2).mean(); opt.zero_grad(); loss.backward(); opt.step()
+    with torch.no_grad(): return f(X[~tr]).numpy() * sd + mu
+
+print(f"RMSE, тыс. пассажиров (максимум train = {y[:cut].max():.0f}, теста = {y[cut:].max():.0f}):")
+print(f"  наивный y[t-1]               {rmse(y[idx - 1]):6.1f}")
+print(f"  сезонный наивный y[t-12]     {rmse(y[idx - 12]):6.1f}")
+print(f"  сезонный × рост за год       {rmse(np.exp(ly[idx - 12] + d[idx - 1])):6.1f}")
+print(f"  GRU на сыром ряде            {rmse(gru_forecast(y, 0)):6.1f}   ← тренд выводит тест за диапазон train")
+print(f"  GRU на log                   {rmse(np.exp(gru_forecast(ly, 0))):6.1f}")
+print(f"  GRU на сезонной разности log {rmse(np.exp(ly[idx - 12] + gru_forecast(d, 12))):6.1f}   ← стационарный ряд")
+```
+
+Результат запуска:
+
+```text
+RMSE, тыс. пассажиров (максимум train = 467, теста = 622):
+  наивный y[t-1]                 50.3
+  сезонный наивный y[t-12]       42.0
+  сезонный × рост за год         17.7
+  GRU на сыром ряде              73.5   ← тренд выводит тест за диапазон train
+  GRU на log                     74.5
+  GRU на сезонной разности log   15.6   ← стационарный ряд
+```
+
+</details>
+
+<details>
+<summary><b>Что почитать / посмотреть</b></summary>
+
+- Учебник ML Яндекса: [Нейросети для работы с последовательностями](https://education.yandex.ru/handbook/ml/article/nejroseti-dlya-raboty-s-posledovatelnostyami) (то же в треке [contest.yandex.ru](https://contest.yandex.ru/tracks/ml/deep-learning-architectures/neural-networks-for-sequences))
+- Шпаргалка Stanford CS230: [Recurrent Neural Networks](https://stanford.edu/~shervine/teaching/cs-230/cheatsheet-recurrent-neural-networks/)
+- Блоги: [C. Olah — Understanding LSTM Networks](http://colah.github.io/posts/2015-08-Understanding-LSTMs/) · [A. Karpathy — The Unreasonable Effectiveness of RNNs](http://karpathy.github.io/2015/05/21/rnn-effectiveness/) · [Smerity — Orthogonal init](https://smerity.com/articles/2016/orthogonal_init.html) · [Vanishing and exploding gradients (jefkine)](http://www.jefkine.com/general/2018/05/21/2018-05-21-vanishing-and-exploding-gradient-problems/) · [Обзор dropout в RNN](https://adriangcoder.medium.com/a-review-of-dropout-as-applied-to-rnns-72e79ecd5b7b) · [OpenAI — Sentiment neuron](https://openai.com/blog/unsupervised-sentiment-neuron/)
+- Статьи: [Hochreiter & Schmidhuber 1997 (LSTM)](https://www.bioinf.jku.at/publications/older/2604.pdf) · [Cho et al. 2014 (GRU)](https://arxiv.org/abs/1406.1078) · [Pascanu et al. 2013 — On the difficulty of training RNNs](https://arxiv.org/abs/1211.5063) · [Greff et al. — LSTM: A Search Space Odyssey](https://arxiv.org/abs/1503.04069) · [Jozefowicz et al. 2015](http://proceedings.mlr.press/v37/jozefowicz15.pdf) · [Zaremba 2014](https://arxiv.org/abs/1409.2329) · [Gal & Ghahramani 2016](https://arxiv.org/abs/1512.05287) · [Semeniuta 2016](https://arxiv.org/abs/1603.05118) · [Curriculum Dropout](https://arxiv.org/abs/1703.06229) · [Fraternal Dropout](https://arxiv.org/abs/1711.00066) · [Laurent 2015 (BN-RNN)](https://arxiv.org/abs/1510.01378) · [Cooijmans 2016 (Recurrent BN)](https://arxiv.org/abs/1603.09025) · [Scheduled Sampling](https://arxiv.org/abs/1506.03099) · [Professor Forcing](https://arxiv.org/abs/1610.09038) · [Karpathy 2015 — Visualizing RNNs](https://arxiv.org/abs/1506.02078) · [Li 2015 — Visualizing neural models in NLP](https://arxiv.org/abs/1506.01066) · [Salehinejad — Recent Advances in RNNs (обзор)](https://arxiv.org/abs/1801.01078) · [Lukoševičius & Jaeger — Reservoir computing approaches](https://doi.org/10.1016/j.cosrev.2009.03.005) · [A. Graves — Supervised Sequence Labelling with RNNs](https://www.cs.toronto.edu/~graves/preprint.pdf) · [J. Guo — BPTT notes](http://ir.hit.edu.cn/~jguo/docs/notes/bptt.pdf)
+- Документация: [torch.nn.LSTM](https://pytorch.org/docs/stable/generated/torch.nn.LSTM.html) · [Sequence models tutorial (LSTMTagger)](https://pytorch.org/tutorials/beginner/nlp/sequence_models_tutorial.html) · [Seq2seq translation tutorial](https://pytorch.org/tutorials/intermediate/seq2seq_translation_tutorial.html)
+- Книги: [Deep Learning Book, гл. 10](https://www.deeplearningbook.org/) ·  [Distill.pub](https://distill.pub/) · [G. Sapunov — Multidimensional RNN](https://www.slideshare.net/grigorysapunov/multidimensional-rnn)
+
+</details>
+
+<details>
+<summary><b>Источники курса</b></summary>
 
 - `RNN_лекция_оформленная_презентация.pptx` (DEEP LEARNING, день 7, 66 слайдов): идея и вычислительный граф, BPTT, LSTM/GRU, минутки кода, teacher forcing, двунаправленные и глубокие RNN, затухание/взрыв градиентов, резервуарные вычисления, dropout и batchnorm в RNN, интерпретация, советы.
 - Семинар 7 «Рекуррентные нейросети (LSTM, внимание). Предобработка текста» ([Colab](https://colab.research.google.com/drive/1D_XIvuqGltfgfkJ2sDcwh5ivuPFKW6ue)): нормализация, регулярки, лемматизация, стоп-слова, словарь, Dataset/collate, RNN/LSTM/GRU для тональности, влияние предобработки.
 - `rnn-international-airline-passengers.ipynb` + `international-airline-passengers.csv`: прогноз временного ряда на Keras `SimpleRNN`.
 
+</details>
 
-<!-- materials:start -->
-**Файлы курса в репозитории:**
+<details>
+<summary><b>Литература к выводам</b></summary>
 
-- DL, лекция 7: рекуррентные сети (лекция курса, файл в репозиторий не включён)
-- DL: повторение (обзор курса) (лекция курса, файл в репозиторий не включён)
-- [RNN для временного ряда авиапассажиров](../../materials/seminars/20_rnn_airline_passengers.ipynb)
-- [Данные: авиапассажиры 1949–1960](../../materials/data/international-airline-passengers.csv)
-- [Семинар 7: RNN, LSTM, предобработка текста](../../materials/seminars/20_Семинар_7_RNN_предобработка_текста.ipynb) · [открыть в Colab](https://colab.research.google.com/drive/1D_XIvuqGltfgfkJ2sDcwh5ivuPFKW6ue)
-<!-- materials:end -->
+- Pascanu, Mikolov, Bengio. [On the difficulty of training recurrent neural networks](https://arxiv.org/abs/1211.5063), 2013.
+- Hochreiter, Schmidhuber. Long short-term memory, 1997 · Gers, Schmidhuber, Cummins. Learning to forget, 2000.
+- Tallec, Ollivier. [Can recurrent neural networks warp time?](https://arxiv.org/abs/1804.11188) (chrono-инициализация), 2018.
+- Bengio et al. [Scheduled Sampling](https://arxiv.org/abs/1506.03099), 2015 · Huszár. [How (not) to train your generative model](https://arxiv.org/abs/1511.05101), 2015 · Ross, Bagnell. Efficient reductions for imitation learning, 2010.
+- Gal, Ghahramani. [A theoretically grounded application of dropout in RNNs](https://arxiv.org/abs/1512.05287) · Semeniuta et al. [Recurrent dropout without memory loss](https://arxiv.org/abs/1603.05118) · Krueger et al. [Zoneout](https://arxiv.org/abs/1606.01305).
+- Ba, Kiros, Hinton. [Layer Normalization](https://arxiv.org/abs/1607.06450), 2016 · Cooijmans et al. [Recurrent Batch Normalization](https://arxiv.org/abs/1603.09025).
+- Le, Jaitly, Hinton. [A simple way to initialize recurrent networks of ReLUs (IRNN)](https://arxiv.org/abs/1504.00941), 2015.
+- Hyndman, Athanasopoulos. [Forecasting: Principles and Practice](https://otexts.com/fpp3/) — сезонные разности, наивные прогнозы, MASE.
+
+</details>
+
+<details>
+<summary><b>Материалы курса и ссылки</b></summary>
+
+- **Лекции курса** (файлы в репозиторий не включены): DL, лекция 7: рекуррентные сети · DL: повторение (обзор курса)
+- **Семинары:** [RNN для временного ряда авиапассажиров](../../materials/seminars/20_rnn_airline_passengers.ipynb) · [Семинар 7: RNN, LSTM, предобработка текста](../../materials/seminars/20_Семинар_7_RNN_предобработка_текста.ipynb) ([Colab](https://colab.research.google.com/drive/1D_XIvuqGltfgfkJ2sDcwh5ivuPFKW6ue))
+- **Данные:** [Данные: авиапассажиры 1949–1960](../../materials/data/international-airline-passengers.csv)
+- **Видео и внешние курсы:** [Шпаргалка CS230 по рекуррентным сетям](https://stanford.edu/~shervine/teaching/cs-230/cheatsheet-recurrent-neural-networks/) · [Яндекс: нейросети для последовательностей](https://contest.yandex.ru/tracks/ml/deep-learning-architectures/neural-networks-for-sequences) · [Stanford CS224n — NLP with Deep Learning](https://web.stanford.edu/class/cs224n/)
+
+</details>
 
 ---
 
-[← Шпаргалка](../../cheatsheet.ipynb) · [🔬 Выводы и математика →](deep.md) · [21. Эмбеддинги слов и токенизация →](../21_word_embeddings_tokenization/README.md)
+[← 19. Contrastive learning, эмбеддинги, векторный поиск, интерпретация](../19_contrastive_embeddings/README.md) · [Оглавление курса](../../README.md) · [21. Представления текста: от мешка слов до word2vec, BPE и контекстных эмбеддингов →](../21_word_embeddings_tokenization/README.md)

@@ -1,12 +1,41 @@
-# 24. Языковые модели, стратегии декодирования, GPT
+# 24. Языковые модели, декодирование, GPT
 
-[← Шпаргалка](../../cheatsheet.ipynb) · [Карта курса](../../README.md) · [🔬 Выводы и математика →](deep.md) · [← 23. Трансформер и BERT](../23_transformer_bert/README.md) · [25. Дообучение LLM и PEFT →](../25_llm_finetuning_peft/README.md)
+[Шпаргалка (ноутбук)](../../cheatsheet.ipynb) · [Оглавление курса](../../README.md)
 
----
+**Суть.** Языковая модель (LM) оценивает вероятность текста через **предсказание следующего токена**:
+$p(w_1..w_T)=\prod_t p(w_t\mid w_{<t})$. Эволюция: **n-граммы** со сглаживанием (марковское допущение, разреженность) →
+нейросетевые с окном (Бенжио, 2003) → **RNN** (весь контекст) → **decoder-only трансформер** (GPT). Качество — **перплексия**
+$e^{\text{CE}}$. Из одной и той же модели разные **стратегии декодирования** дают очень разные тексты: greedy и beam
+search — наиболее вероятные, но скучные и с повторами («дегенерация»); для свободной генерации — **сэмплирование** с
+температурой, **top-k**, **top-p (nucleus)**, штрафами за повторы. Масштаб GPT-1 → GPT-2 → GPT-3: 117M → 1.5B → 175B параметров;
+от дообучения под задачу к **zero/few-shot** через промпт (in-context learning).
 
-## Часть A. Моделирование языка
+| Термин | Определение |
+|---|---|
+| Марковское допущение | $p(w_t\mid w_{<t})\approx p(w_t\mid w_{t-n+1..t-1})$ — n-граммная модель |
+| Сглаживание | Лаплас (add-k), backoff, интерполяция, Kneser–Ney — вероятность невиданным n-граммам |
+| Перплексия | $\exp\big(-\frac1N\sum\log p(w_t\mid w_{<t})\big)$; «из скольких равновероятных вариантов выбираем» |
+| Causal (masked) self-attention | позиция видит только прошлое; обучение параллельно по всем позициям |
+| Температура $\tau$ | $\operatorname{softmax}(z/\tau)$: $\tau<1$ — острее, $\tau>1$ — площе, $\tau\to0$ — greedy |
+| Top-k / top-p | сэмплировать из $k$ самых вероятных / из минимального набора с суммарной вероятностью $\ge p$ |
+| Repetition penalty | делим логиты уже встречавшихся токенов на $\theta>1$ (CTRL) |
+| KV-cache | при генерации храним ключи и значения прошлых токенов — шаг $O(T)$ вместо $O(T^2)$ |
+| Zero/one/few-shot | задача описана в промпте без примеров / с одним / с несколькими; веса не меняются |
 
-### 1. Что такое языковая модель
+$$
+\mathrm{PPL}=\exp\Big(-\frac1N\sum_{t=1}^{N}\log p(w_t\mid w_{<t})\Big),\qquad
+p_\tau(w)=\frac{e^{z_w/\tau}}{\sum_v e^{z_v/\tau}},\qquad
+V^{(p)}=\min\Big\lbrace V'\!:\ \sum_{w\in V'}p(w)\ge p\Big\rbrace
+$$
+
+## Конспект
+
+Разделы раскрываются по клику.
+
+**Часть A. Моделирование языка**
+
+<details>
+<summary><b>1. Что такое языковая модель</b></summary>
 
 Языковая модель — распределение вероятностей на последовательностях токенов. По цепному правилу
 
@@ -19,7 +48,10 @@ $$
 выбор лучшего варианта в машинном переводе и распознавании речи, чат-боты; с 2018 года — основа предобучения (GPT, BERT) и сейчас
 всех LLM. Популярность моделирования языка как задачи предобучения — обзор Xu Han et al. (2021).
 
-### 2. n-граммные модели
+</details>
+
+<details>
+<summary><b>2. n-граммные модели</b></summary>
 
 **Марковское допущение:** следующее слово зависит только от $n - 1$ предыдущих. Пример лекции — «кот поймал в мешок дровосека»:
 - униграммы: $p(\text{кот})\,p(\text{поймал})\,p(\text{в})\,p(\text{мешок})\,p(\text{дровосека})$;
@@ -44,7 +76,10 @@ $$
 **Проблема обобщения:** если в выборке «(идти, в, сад)» и «(идти, в, огород)», модель ничего не знает о «(идти, в, парк)» — слова
 дискретны, похожесть «сада» и «парка» не используется. Выход — нейросети с эмбеддингами.
 
-### 3. Нейросетевые LM
+</details>
+
+<details>
+<summary><b>3. Нейросетевые LM</b></summary>
 
 - **С фиксированным окном** (Bengio et al., 2003): конкатенация эмбеддингов $n - 1$ предыдущих слов → скрытый слой → softmax по словарю.
   Нет разреженности, не надо хранить счётчики, похожие слова → похожие предсказания. Но окно фиксировано, и матрица растёт с окном.
@@ -53,7 +88,10 @@ $$
   после 100 итераций — мешанина букв, после 300 — слова и пробелы, после 2000 — правдоподобные предложения с именами героев.
 - **Трансформер-декодер** (GPT): causal self-attention, весь контекст за один шаг, обучение параллельно по позициям.
 
-### 4. Обучение и оценка
+</details>
+
+<details>
+<summary><b>4. Обучение и оценка</b></summary>
 
 Лосс — кросс-энтропия следующего токена, усреднённая по позициям (средний логарифм, а не сумма, — «чтобы не было коротких предложений»
 при сравнении). **Перплексия**
@@ -69,21 +107,25 @@ $$
 Оговорки: PPL зависит от токенизации и не сравнима между моделями с разными словарями (сравнивают bits-per-byte); низкая PPL не
 гарантирует хорошую генерацию; для чат-моделей используют другие оценки (бенчмарки, сравнение людьми, LLM-as-a-judge, [тема 26](../26_llm_rag_agents/README.md)).
 
----
+</details>
 
-## Часть B. Стратегии декодирования
+**Часть B. Стратегии декодирования**
 
-### 5. Детерминированные: greedy и beam search
+<details>
+<summary><b>5. Детерминированные: greedy и beam search</b></summary>
 
 - **Greedy:** на каждом шаге самый вероятный токен. Быстро, но близоруко.
 - **Beam search:** $k$ лучших префиксов по **усреднённому** логарифму вероятности; продолжают до максимальной длины $T$ или пока не
   наберётся $n$ законченных вариантов. Маленький $k$ — релевантно, но часто «неязыковая» фраза; большой $k$ — грамматично, но слишком
-  обще. Подробности поиска — [тема 22](../22_seq2seq_attention/README.md#4-вывод-greedy-и-beam-search); обучение с учётом beam search — Wiseman & Rush (2016).
+  обще. Подробности поиска — [тема 22](../22_seq2seq_attention/README.md); обучение с учётом beam search — Wiseman & Rush (2016).
 
 Для задач с «правильным» ответом (перевод, суммаризация) beam search хорош. Для **open-ended** генерации (истории, диалог) максимизация
 вероятности ведёт к **дегенерации**.
 
-### 6. «Дегенерация текстов» (Holtzman et al., 2019)
+</details>
+
+<details>
+<summary><b>6. «Дегенерация текстов» (Holtzman et al., 2019)</b></summary>
 
 - Между человеческим и машинным текстом огромная статистическая разница: **человеческий язык не самый вероятный**. Вероятность
   человеческого текста под моделью сильно «скачет», а beam search выдаёт ровную высокую.
@@ -94,7 +136,10 @@ $$
   токенов 0.09); `no_repeat_ngram_size=3` спасает формально, но текст становится диалогом «ни о чём».
 - Выход — **стохастическое декодирование** и изменение обучения (unlikelihood training, Welleck et al., 2019).
 
-### 7. Стохастические стратегии
+</details>
+
+<details>
+<summary><b>7. Стохастические стратегии</b></summary>
 
 | Стратегия | Как | Свойство |
 |---|---|---|
@@ -118,11 +163,12 @@ out = model.generate(**enc, max_new_tokens=100, do_sample=True,
 вероятность «запрещённого множества» (уже встреченные токены, повторяющиеся n-граммы). И глобально мы не умеем максимизировать
 правдоподобие всей последовательности — только локально по шагам.
 
----
+</details>
 
-## Часть C. Линейка GPT
+**Часть C. Линейка GPT**
 
-### 8. GPT-1 (Radford et al., 2018) — Generative Pre-Training
+<details>
+<summary><b>8. GPT-1 (Radford et al., 2018) — Generative Pre-Training</b></summary>
 
 - Декодер трансформера: 12 слоёв, 12 голов, $d = 768$, GELU, однонаправленный (masked self-attention), 117M параметров.
 - BPE с 40 000 слияний; контекст 512 токенов; BooksCorpus (~7000 неопубликованных книг — длинные связные тексты); 100 эпох, батч 64.
@@ -132,7 +178,10 @@ out = model.generate(**enc, max_new_tokens=100, do_sample=True,
   сходство — обе перестановки; multiple choice — каждый вариант отдельно).
 - Отличие от ELMo: там признаки подстраиваются под задачу весами слоёв, здесь — дообучается вся модель.
 
-### 9. GPT-2 (2019) — «Language Models are Unsupervised Multitask Learners»
+</details>
+
+<details>
+<summary><b>9. GPT-2 (2019) — «Language Models are Unsupervised Multitask Learners»</b></summary>
 
 - До **1.5 млрд** параметров (≈10 × GPT-1): 48 слоёв, $d = 1600$; размеры 117M / 345M / 762M / 1.5B.
 - Датасет **WebText**: исходящие ссылки с Reddit с ≥ 3 кармы (фильтр «отобрано человеком»), ~45 млн ссылок → 8 млн документов, 40 ГБ;
@@ -145,7 +194,10 @@ out = model.generate(**enc, max_new_tokens=100, do_sample=True,
   моделирования языка без дообучения; «надо задавать правильные вопросы».
 - Пример тестов Lacker (2020, на GPT-3): на «Кто был президентом США в 1600 году?» модель уверенно выдумывает ответ — галлюцинации.
 
-### 10. GPT-3 (Brown et al., 2020) — «Language Models are Few-Shot Learners»
+</details>
+
+<details>
+<summary><b>10. GPT-3 (Brown et al., 2020) — «Language Models are Few-Shot Learners»</b></summary>
 
 - **175 млрд** параметров (≈100 × GPT-2, ≈10 × Turing NLG): 96 слоёв, 96 голов, $d = 12\,288$, контекст 2048.
 - Чередование плотного и **локально-полосатого разреженного** внимания (как в Sparse Transformer).
@@ -154,19 +206,25 @@ out = model.generate(**enc, max_new_tokens=100, do_sample=True,
   Справляется с задачами «на лету» (сложение чисел, SQL по описанию, новые слова), генерирует правдоподобные статьи; на SuperGLUE
   (задачи сравнения двух предложений) уступает дообученным моделям.
 
-### 11. Дальше: размеры, эмерджентность, выравнивание
+</details>
+
+<details>
+<summary><b>11. Дальше: размеры, эмерджентность, выравнивание</b></summary>
 
 - Модели растут на порядки (обзор размеров — Zhao et al., «A Survey of LLMs»). **Законы масштабирования** (Kaplan 2020; Chinchilla —
-  Hoffmann 2022: оптимально ~20 токенов на параметр) — [deep §6](deep.md#6-законы-масштабирования).
+  Hoffmann 2022: оптимально ~20 токенов на параметр) — см. раздел «6. Законы масштабирования».
 - **Эмерджентные способности** (Wei et al., 2022): некоторые умения (арифметика, многошаговые рассуждения) появляются только при
   достаточном масштабе — резкий скачок на графике качества (есть и критика: скачки частично артефакт дискретных метрик).
 - **GPT-3.5 / InstructGPT / ChatGPT** (2022): дообучение на инструкциях + **RLHF** — модель следует просьбам и реже токсична;
   **GPT-4** (2023): мультимодальный вход, детали архитектуры и данных не раскрыты. Подробности дообучения — [тема 25](../25_llm_finetuning_peft/README.md).
 
-> ⚠️ Таблица «GPT-1…GPT-4» со слайда 64 взята из блогов и содержит неточности: контекст GPT-1 — 512, GPT-2 — 1024, GPT-3 — 2048 токенов;
+> **Важно.** Таблица «GPT-1…GPT-4» со слайда 64 взята из блогов и содержит неточности: контекст GPT-1 — 512, GPT-2 — 1024, GPT-3 — 2048 токенов;
 > число параметров GPT-4 официально не раскрыто; GPT-1 не обучался на Common Crawl.
 
-### 12. Бонус: извлечение обучающих данных (Carlini et al., 2021)
+</details>
+
+<details>
+<summary><b>12. Бонус: извлечение обучающих данных (Carlini et al., 2021)</b></summary>
 
 Модели учат на корпусах с персональными данными (имена, телефоны, e-mail; автодополнение Gmail учили на переписке). Атаки: **membership
 inference** (был ли пример в обучении; Shokri 2017), **извлечение** конкретных примеров. Считалось, что большие модели не переобучены и
@@ -181,12 +239,18 @@ GPT-2 small/medium; к степени сжатия zlib; к перплексии
 GPT-2 продолжает «3.14159» на 25 цифр, beam search — на 500, с контекстом «pi is 3.14159» — 799, «pi begins 3.14159» — 824: **контекст важен**.
 Защита — дифференциально-приватное обучение, дедупликация данных.
 
-### Итог лекции
+</details>
+
+<details>
+<summary><b>Итог лекции</b></summary>
 
 Языковые модели предсказывают следующее слово; есть простые n-граммные, рекуррентные и трансформерные позволяют учесть весь контекст;
 способов генерации много, и они сильно влияют на результат; языковые модели можно «взломать»; линейка GPT продолжается.
 
-### Чек-лист
+</details>
+
+<details>
+<summary><b>Чек-лист</b></summary>
 
 - [ ] Генерация с правильным ответом (перевод, суммаризация) — beam 4–5 + штраф за длину; свободная — top-p 0.9, $\tau$ 0.7–1.0.
 - [ ] Повторы — repetition penalty / `no_repeat_ngram_size`, но проверяйте глазами.
@@ -194,32 +258,398 @@ GPT-2 продолжает «3.14159» на 25 цифр, beam search — на 50
 - [ ] `attention_mask` и `pad_token_id` при батчевой генерации; левый паддинг для decoder-only.
 - [ ] Не обучать на персональных данных без защиты; дедуплицировать корпус.
 
----
+</details>
 
-## Что почитать / посмотреть
+**Математика и выводы**
 
-- 📘 Лена Войта: [Language Modeling](https://lena-voita.github.io/nlp_course/language_modeling.html) · [yandexdataschool/nlp_course](https://github.com/yandexdataschool/nlp_course) (week02 — Language Modeling, week05 — LLM) · 🎥 запись лекции «Language Modeling» ([Яндекс Диск](https://disk.yandex.ru/i/E4NlokgRT6Ci6g))
-- 📘 Учебник ML Яндекса: [Языковые модели](https://education.yandex.ru/handbook/ml/article/yazykovye-modeli)
-- 📄 [HF blog — How to generate text](https://huggingface.co/blog/how-to-generate) · [Lilian Weng — Controllable Neural Text Generation](https://lilianweng.github.io/posts/2021-01-02-controllable-text-generation/) · [Generalized Language Models](https://lilianweng.github.io/posts/2019-01-31-lm/) · [katnoria — NLG decoders](https://www.katnoria.com/nlg-decoders/) · [Karpathy — RNN effectiveness](http://karpathy.github.io/2015/05/21/rnn-effectiveness/) · [Lacker — Giving GPT-3 a Turing Test](https://lacker.io/ai/2020/07/06/giving-gpt-3-a-turing-test.html)
-- 📄 Курсы: Stanford [CS224n](https://web.stanford.edu/class/cs224n/) · [CS336 — Language Modeling from Scratch](https://cs336.stanford.edu/) · [DL2 HSE](https://github.com/thecrazymage/DL2_HSE) (week03–05)
-- 🎥 [A. Karpathy — Let's build GPT: from scratch, in code, spelled out](https://www.youtube.com/watch?v=kCc8FmEb1nY) · репозиторий [nanoGPT](https://github.com/karpathy/nanoGPT)
-- 📄 Статьи: [Bengio 2003 — Neural Probabilistic LM](https://www.jmlr.org/papers/volume3/bengio03a/bengio03a.pdf) · [GPT-1](https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf) · [GPT-2](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf) · [GPT-3](https://arxiv.org/abs/2005.14165) · [decaNLP / MQAN](https://arxiv.org/abs/1806.08730) · [Curious Case of Neural Text Degeneration](https://arxiv.org/abs/1904.09751) · [Unlikelihood Training](https://arxiv.org/abs/1908.04319) · [CTRL](https://arxiv.org/abs/1909.05858) · [Beam-Search Optimization](https://arxiv.org/abs/1606.02960) · [Extracting Training Data from LLMs](https://arxiv.org/abs/2012.07805) · [Emergent Abilities](https://arxiv.org/abs/2206.07682) · [Scaling Laws](https://arxiv.org/abs/2001.08361) · [Chinchilla](https://arxiv.org/abs/2203.15556) · [Pre-Trained Models: Past, Present and Future](https://arxiv.org/abs/2106.07139) · [A Survey of LLMs](https://arxiv.org/abs/2303.18223) · [Kneser–Ney / Chen & Goodman 1998](https://dash.harvard.edu/handle/1/25104739)
+<details>
+<summary><b>1. Перплексия, кросс-энтропия, биты</b></summary>
 
-## Источники курса
+Пусть $\bar{\mathcal L} = -\frac1N\sum_t\ln p(w_t\mid w_{<t})$ — средний лосс (наты на токен). Тогда
+
+$$
+\mathrm{PPL} = e^{\bar{\mathcal L}} = \Big(\prod_{t=1}^{N}p(w_t\mid w_{<t})\Big)^{-1/N} = 2^{\bar{\mathcal L}/\ln 2} .
+$$
+
+- Если модель на каждом шаге равномерно колеблется между $k$ вариантами, $p = 1/k$ и $\mathrm{PPL} = k$ — «эффективный коэффициент ветвления».
+  Равномерная модель над словарём даёт $\mathrm{PPL} = \lvert V\rvert$; идеальная — 1.
+- $\bar{\mathcal L}$ — **кросс-энтропия** $H(p_{\text{data}}, p_\theta) = H(p_{\text{data}}) + \mathrm{KL}(p_{\text{data}}\,\|\,p_\theta)\ge H(p_{\text{data}})$: перплексия ограничена снизу
+  энтропией самого языка; минимизация лосса — минимизация KL.
+- **Сравнение между токенизаторами:** если текст из $B$ байт разбит на $N$ токенов, то bits-per-byte $= \frac{N\bar{\mathcal L}}{B\ln 2}$ — величина,
+  не зависящая от токенизации. PPL на слово: $\exp(N\bar{\mathcal L}/N_{\text{слов}})$.
+- LM — это компрессор: арифметическое кодирование по $p_\theta$ сжимает текст до $\approx N\bar{\mathcal L}/\ln 2$ бит. Отсюда признак запоминания у
+  Carlini et al.: текст, который GPT-2 «сжимает» гораздо лучше, чем zlib, вероятно, выучен наизусть (отношение $\log\mathrm{PPL}$ к энтропии zlib).
+
+</details>
+
+<details>
+<summary><b>2. MLE для n-грамм — это частоты</b></summary>
+
+Для контекста $h$ параметры $\theta_w = p(w\mid h)$, $\sum_w\theta_w = 1$. Логарифм правдоподобия $\sum_wc(h, w)\ln\theta_w$; лагранжиан
+$\sum_wc(h, w)\ln\theta_w - \lambda(\sum_w\theta_w - 1)$, производная $c(h, w)/\theta_w - \lambda = 0$ ⇒ $\theta_w = c(h, w)/\lambda$, и из нормировки
+$\lambda = c(h)$:
+
+$$
+\hat p(w\mid h) = \frac{c(h, w)}{c(h)} .
+$$
+
+**Закон Ципфа** (частота $\propto$ ранг$^{-1}$) объясняет разреженность: большинство n-грамм редки, и в любом корпусе огромная доля
+допустимых n-грамм встречается 0 раз — MLE даёт им нулевую вероятность, а перплексия на тесте становится бесконечной.
+
+</details>
+
+<details>
+<summary><b>3. Почему Лаплас плох, и что лучше</b></summary>
+
+Add-$k$: $p(w\mid h) = \frac{c(h, w) + k}{c(h) + kV}$. Доля массы, отданная **невиданным** продолжениям контекста с $n_h$ разными виденными словами:
+
+$$
+\frac{k\,(V - n_h)}{c(h) + kV}.
+$$
+
+Для частого контекста $c(h) = 100$, $V = 265\,000$, $k = 1$ это $\approx 0.999$: виденным словам достаётся меньше 0.1% массы, хотя именно они
+почти всегда и встречаются. Отсюда в L1-примере биграммы с add-1 (PPL 11 609) хуже униграмм (3 046). Уменьшение $k$ до 0.01 помогает (1 733),
+но правильнее оценивать «долю нового» по данным:
+
+- **Good–Turing:** вероятность всех невиданных событий $\approx N_1/N$ (доля событий, встреченных ровно один раз); скорректированный счётчик
+  $c^{*} = (c + 1)\frac{N_{c+1}}{N_c}$.
+- **Интерполяция:** $p = \lambda_3\hat p_3 + \lambda_2\hat p_2 + \lambda_1\hat p_1$; $\lambda$ — максимум правдоподобия **отложенных** данных (EM: E-шаг — апостериорная
+  доля каждой компоненты для каждого токена, M-шаг — среднее этих долей). В примере фиксированные $\lambda = (0.5, 0.35, 0.15)$ дали PPL 736.
+- **Kneser–Ney (интерполированный):**
+
+$$
+p_{\mathrm{KN}}(w\mid h) = \frac{\max(c(h, w) - D, 0)}{c(h)} + \frac{D\cdot N_{1+}(h\,\bullet)}{c(h)}\;p_{\text{cont}}(w),\qquad
+p_{\text{cont}}(w) = \frac{N_{1+}(\bullet\,w)}{N_{1+}(\bullet\,\bullet)},
+$$
+
+где $D\approx0.75$ — абсолютная скидка, $N_{1+}(h\bullet)$ — число разных слов после $h$ (сколько массы освободили), $N_{1+}(\bullet w)$ — число
+разных контекстов слова $w$. «Francisco» частое, но почти только после «San» — у него мало контекстов, и в новом контексте оно получает
+малую вероятность. Модифицированный KN (Chen & Goodman) — лучший классический метод.
+
+</details>
+
+<details>
+<summary><b>4. Температура, top-k, top-p</b></summary>
+
+$p_\tau(w) = \frac{e^{z_w/\tau}}{\sum_ve^{z_v/\tau}}\propto p(w)^{1/\tau}$ — «закалённое» распределение. Пределы: $\tau\to0$ — вся масса на argmax (greedy);
+$\tau\to\infty$ — равномерное. Энтропия $H(p_\tau)$ монотонно растёт по $\tau$: $\frac{dH}{d\tau} = \frac{1}{\tau^3}\operatorname{Var}_{p_\tau}(z)\ge0$.
+
+Top-$k$: $p'(w)\propto p(w)\,[w\in\text{top-}k]$. Top-$p$: отсортировать по убыванию, взять минимальный префикс с $\sum\ge p$, перенормировать.
+Масса, которую отрезает top-$k$, — $1 - \sum_{\text{top-}k}p$ — зависит от формы распределения; top-$p$ фиксирует именно её ($\le 1 - p$),
+а число кандидатов становится переменным. Обе процедуры — смещённое сэмплирование: генерируем не из модели, а из её «усечённой»
+версии, жертвуя покрытием ради качества (компромисс разнообразие ↔ качество, похожий на truncation trick в GAN — [тема 27](../27_generative_models/README.md)).
+
+**Штраф за повтор (CTRL):** для $w$ из уже сгенерированного $z_w\leftarrow z_w/\theta$ при $z_w > 0$ и $z_w\cdot\theta$ при $z_w < 0$ (реализация
+Hugging Face), $\theta\approx1.2$.
+
+</details>
+
+<details>
+<summary><b>5. Почему максимизация вероятности даёт повторы</b></summary>
+
+Если модель хоть раз повторила фразу, контекст теперь содержит образец, и механизм копирования (индукционные головы внимания)
+повышает вероятность повторить её снова: $p(\text{повтор}_{k+1}\mid\text{повтор}_{1..k})$ растёт с $k$ (Xu et al., 2022, «Learning to Break the Loop»).
+Greedy/beam ищут наиболее вероятную последовательность — и находят петлю, у которой каждый шаг вероятен. Человеческий текст
+**информативен**: каждый следующий токен несёт примерно постоянную, не минимальную, информацию — поэтому его лог-вероятность
+по модели заметно ниже, чем у beam-вывода, и «прыгает» (Holtzman et al., рис. с вероятностями токенов).
+
+**Unlikelihood training:** к LM-лоссу добавляется $-\sum_{c\in\mathcal C_t}\log\big(1 - p_\theta(c\mid w_{<t})\big)$ по множеству «отрицательных
+кандидатов» $\mathcal C_t$ (например, уже встреченные токены) — модель явно учится не повторяться.
+
+</details>
+
+<details>
+<summary><b>6. Законы масштабирования</b></summary>
+
+Kaplan et al. (2020): при достаточных данных и вычислениях тестовый лосс степенно убывает по каждому ресурсу:
+
+$$
+L(N)\approx\Big(\frac{N_c}{N}\Big)^{\alpha_N},\ \alpha_N\approx0.076;\qquad L(D)\approx\Big(\frac{D_c}{D}\Big)^{\alpha_D},\ \alpha_D\approx0.095;\qquad C\approx6ND
+$$
+
+($N$ — параметры без эмбеддингов, $D$ — токены, $C$ — FLOPs; $6 = 2$ вперёд $+ 4$ назад на параметр и токен). **Chinchilla** (Hoffmann et al.,
+2022) перепроверила оптимальное распределение бюджета $C$ и получила $N_{\text{opt}}\propto C^{0.5}$, $D_{\text{opt}}\propto C^{0.5}$ — параметры и
+данные растут поровну, примерно **20 токенов на параметр**. GPT-3 (175B на 300B токенах, ~1.7 токена на параметр) по этому критерию
+сильно недообучена; Chinchilla-70B на 1.4T токенов превзошла её. Современные модели учат ещё дольше (сотни токенов на параметр), так как
+важна цена **инференса**, а не только обучения.
+
+</details>
+
+<details>
+<summary><b>7. Стоимость генерации и KV-cache</b></summary>
+
+Без кэша шаг $t$ пересчитывает внимание по всему префиксу: суммарно $O(T^2)$ проходов по токенам ($O(T^3d)$ для внимания). С кэшем на
+шаге $t$ считаются $q, k, v$ только нового токена, а $K, V$ прошлого берутся из памяти: проход одного токена через модель — $O(N)$ FLOPs
+плюс $O(t\,d)$ на внимание. Память кэша на последовательность
+
+$$
+M_{\text{KV}} = 2\cdot L\cdot T\cdot d\cdot b\ \text{байт}
+$$
+
+($2$ — ключи и значения, $L$ слоёв, $b$ байт на число). Для модели с $L = 32$, $d = 4096$ в fp16 — $2\cdot32\cdot4096\cdot2 = 512$ КБ на токен,
+2 ГБ на контекст 4096. **MQA/GQA** (общие K, V для групп голов) делят это на число голов в группе; квантование кэша — ещё в 2–4 раза.
+Генерация упирается не в FLOPs, а в **пропускную способность памяти**: на каждый токен надо прочитать все веса — отсюда выигрыш от
+батчинга запросов и спекулятивного декодирования. В L1-примере кэш ускорил 60 токенов ruGPT-3 small с 5.7 до 2.6 с.
+
+</details>
+
+<details>
+<summary><b>8. Почему decoder-only учится на всех позициях сразу</b></summary>
+
+Вход $x = (w_1, \ldots, w_T)$, цели $y = (w_2, \ldots, w_{T+1})$ — та же последовательность со сдвигом на 1. Causal-маска гарантирует, что выход
+позиции $t$ зависит только от $w_{\le t}$, поэтому один проход даёт $T$ корректных условных распределений, и
+
+$$
+\mathcal L = -\frac1T\sum_{t=1}^{T}\log p_\theta(w_{t+1}\mid w_{\le t}) .
+$$
+
+В Hugging Face `model(ids, labels=ids)` сдвигает метки внутри и игнорирует `-100`. Один документ длины $T$ даёт $T$ обучающих примеров — это и
+делает LM-предобучение таким эффективным по данным по сравнению с MLM (15% позиций).
+
+</details>
+
+<details>
+<summary><b>Вопросы с собеседований</b></summary>
+
+Сначала ответьте сами, потом раскройте ответ.
+
+<details>
+<summary>Почему Лаплас (add-1) для биграмм хуже униграмм (PPL ≈ 11 600 против 3 000 в примере)?</summary>
+
+словарь огромный: прибавка $V$ в знаменатель отнимает почти всю массу у виденных пар. Нужны малые $k$, интерполяция, Kneser–Ney.
+
+</details>
+
+<details>
+<summary>Перплексии моделей с разными токенизаторами сравнимы?</summary>
+
+нет: PPL на токен зависит от токенизации; сравнивают bits-per-byte/character или PPL на слово.
+
+</details>
+
+<details>
+<summary>Почему beam search в свободной генерации повторяется (в примере — строка переводов строк)?</summary>
+
+максимизирует вероятность, а повтор после повтора становится всё вероятнее (самоусиление); человеческий текст не самый вероятный.
+
+</details>
+
+<details>
+<summary>top-k vs top-p?</summary>
+
+top-k фиксирует число кандидатов при любой «ширине» распределения; top-p адаптивен.
+
+</details>
+
+<details>
+<summary>Как GPT обучается параллельно, если генерирует последовательно?</summary>
+
+causal-маска + teacher forcing: все позиции предсказываются за один проход.
+
+</details>
+
+<details>
+<summary>Что такое in-context learning?</summary>
+
+задача и примеры в промпте, без градиентов; способность появляется с масштабом (emergent).
+
+</details>
+
+<details>
+<summary>Может ли LM выдать персональные данные из обучающей выборки?</summary>
+
+да (Carlini et al., 2021: 604 дословных запоминания из 1800 кандидатов у GPT-2).
+
+</details>
+
+<details>
+<summary>Зачем KV-cache и чем он платит?</summary>
+
+не пересчитывать $K,V$ префикса; память $2\cdot L\cdot T\cdot d$ на последовательность растёт с длиной.
+
+</details>
+
+</details>
+
+<details>
+<summary><b>Дополнительно: детали</b></summary>
+
+- **GPT-1** (2018): декодер трансформера, 12 слоёв, 12 голов, $d=768$, GELU, BPE 40k слияний, контекст 512, BooksCorpus (7000 книг); дообучение — линейный слой на последнем токене, лосс = задача + $\lambda\cdot$LM; разные задачи — через формат входа со спецтокенами.
+- **GPT-2** (2019): до 1.5B, 48 слоёв, $d=1600$; WebText (ссылки с Reddit с ≥3 кармы, 8 млн документов, 40 ГБ, без Википедии); byte-level BPE 50 257; контекст 1024; LayerNorm на входе подблоков (pre-LN) + LN в конце, масштаб инициализации residual-слоёв $1/\sqrt N$. Zero-shot через формат: «TL;DR:», «Q: … A:».
+- **GPT-3** (2020): 175B, 96 слоёв, 96 голов, $d=12288$, контекст 2048, чередование плотного и разреженного (local banded) внимания; 300B токенов (Common Crawl с фильтрацией, WebText2, книги, Википедия); few-shot без дообучения; арифметика, SQL «на лету».
+- **Дегенерация** (Holtzman et al., 2019): у машинного текста на 40% меньше уникальных токенов, частые слова слишком часты; следующий токен встречается среди 128 предыдущих в 63% случаев против 49% у людей; «лечится» сэмплированием (nucleus) и unlikelihood training.
+- **Применения LM помимо генерации:** ранжирование вариантов в переводе и распознавании речи, проверка текста, подсказки при наборе, чат-боты.
+
+</details>
+
+<details>
+<summary><b>Примеры кода (с результатами запуска)</b></summary>
+
+Запустить их можно в ноутбуке [`cheatsheet.ipynb`](../../cheatsheet.ipynb).
+
+```python
+# n-граммные LM на рецензиях Кинопоиска: сглаживание решает всё (перплексия на отложенных предложениях)
+import os, re, math, warnings, numpy as np, pandas as pd
+from collections import Counter
+warnings.filterwarnings("ignore")
+paths = ["0000.parquet", "materials/data/0000.parquet", "../0000.parquet"]
+src = next((p for p in paths if os.path.exists(p)),
+           "https://huggingface.co/datasets/blinoff/kinopoisk/resolve/refs%2Fconvert%2Fparquet/default/train/0000.parquet")
+texts = pd.read_parquet(src, columns=["content"]).content.str.lower().str.replace("ё", "е")
+sents = [["<s>"] + re.findall(r"[а-яa-z]+", s) + ["</s>"] for t in texts for s in re.split(r"[.!?…]+", t)]
+sents = [s for s in sents if len(s) > 3]
+idx = np.random.default_rng(0).permutation(len(sents)); test = [sents[i] for i in idx[:5000]]; train = [sents[i] for i in idx[5000:]]
+uni = Counter(w for s in train for w in s); bi = Counter(p for s in train for p in zip(s, s[1:]))
+tri = Counter(p for s in train for p in zip(s, s[1:], s[2:])); N, V = sum(uni.values()), len(uni) + 1
+print(f"обучение: {len(train)} предложений, {N / 1e6:.1f} млн токенов, словарь {V}")
+
+def perplexity(prob):
+    lp = [math.log(prob(s, i)) for s in test for i in range(1, len(s))]
+    return math.exp(-np.mean(lp))
+p_uni = lambda s, i: (uni[s[i]] + 1) / (N + V)
+p_bi = lambda k: (lambda s, i: (bi[s[i - 1], s[i]] + k) / (uni[s[i - 1]] + k * V))
+def p_interp(s, i, l=(0.5, 0.35, 0.15)):                                  # интерполяция три-, би-, униграмм
+    p3 = tri[s[i - 2], s[i - 1], s[i]] / bi[s[i - 2], s[i - 1]] if i >= 2 and bi[s[i - 2], s[i - 1]] else 0
+    p2 = bi[s[i - 1], s[i]] / uni[s[i - 1]] if uni[s[i - 1]] else 0
+    return l[0] * p3 + l[1] * p2 + l[2] * p_uni(s, i)
+for name, f in [("униграммы (add-1)", p_uni), ("биграммы, Лаплас add-1", p_bi(1)), ("биграммы, add-0.01", p_bi(0.01)),
+                ("интерполяция 3/2/1-грамм", p_interp)]:
+    print(f"{name:26s} PPL = {perplexity(f):8.0f}")
+```
+
+Результат запуска:
+
+```text
+обучение: 803604 предложений, 12.2 млн токенов, словарь 265200
+униграммы (add-1)          PPL =     3046
+биграммы, Лаплас add-1     PPL =    11609
+биграммы, add-0.01         PPL =     1733
+интерполяция 3/2/1-грамм   PPL =      736
+```
+
+```python
+# Стратегии сэмплирования с нуля: что делают температура, top-k и top-p с распределением
+import torch
+def filter_logits(logits, temperature=1.0, top_k=0, top_p=1.0):
+    z = logits / temperature
+    if top_k: z = z.masked_fill(z < z.topk(top_k).values[..., -1:], float("-inf"))
+    if top_p < 1.0:
+        sz, si = z.sort(descending=True); cum = sz.softmax(-1).cumsum(-1)
+        drop = cum - sz.softmax(-1) >= top_p                                   # оставляем минимальное «ядро» массы p
+        z = z.masked_fill(drop.scatter(-1, si, drop), float("-inf"))
+    return z.softmax(-1)
+
+torch.manual_seed(0)
+peaked = torch.cat([torch.tensor([9.0, 7.5, 6.5]), torch.randn(997) * 0.5])     # «уверенный» шаг: почти ясно, что дальше
+flat = torch.randn(1000) * 0.5                                               # «открытый» шаг: много разумных вариантов
+H = lambda p: -(p[p > 0] * p[p > 0].log()).sum().item()
+for name, kw in [("T=1", {}), ("T=0.5", dict(temperature=0.5)), ("T=1.5", dict(temperature=1.5)),
+                 ("top-k=40", dict(top_k=40)), ("top-p=0.9", dict(top_p=0.9))]:
+    a, b = filter_logits(peaked, **kw), filter_logits(flat, **kw)
+    print(f"{name:10s} уверенный шаг: {int((a > 0).sum()):4d} токенов, H={H(a):.2f} | открытый шаг: {int((b > 0).sum()):4d} токенов, H={H(b):.2f}")
+# top-k режет одинаково везде; top-p адаптируется: мало кандидатов при уверенности, много — при неопределённости
+```
+
+Результат запуска:
+
+```text
+T=1        уверенный шаг: 1000 токенов, H=1.60 | открытый шаг: 1000 токенов, H=6.79
+T=0.5      уверенный шаг: 1000 токенов, H=0.23 | открытый шаг: 1000 токенов, H=6.45
+T=1.5      уверенный шаг: 1000 токенов, H=5.30 | открытый шаг: 1000 токенов, H=6.85
+top-k=40   уверенный шаг:   40 токенов, H=0.78 | открытый шаг:   40 токенов, H=3.68
+top-p=0.9  уверенный шаг:    3 токенов, H=0.68 | открытый шаг:  785 токенов, H=6.59
+```
+
+```python
+# Настоящая GPT (ruGPT-3 small, 125M, ~500 МБ при первом запуске): перплексия и стратегии декодирования
+import time
+try:
+    from transformers import AutoTokenizer, AutoModelForCausalLM
+    name = "sberbank-ai/rugpt3small_based_on_gpt2"
+    tok, lm = AutoTokenizer.from_pretrained(name), AutoModelForCausalLM.from_pretrained(name).eval()
+    def ppl(text):
+        ids = tok(text, return_tensors="pt").input_ids
+        with torch.no_grad(): return math.exp(lm(ids, labels=ids).loss.item())       # labels сдвигаются внутри модели
+    for t in ["Москва является столицей Российской Федерации.", "Москва является столицей Французской Республики.",
+              "Федерации столицей Москва Российской является."]:
+        print(f"PPL {ppl(t):7.1f}  {t}")
+
+    enc = tok("Фильм оказался неожиданно", return_tensors="pt")
+    for label, cfg in {"greedy": dict(do_sample=False), "beam=5": dict(num_beams=5, do_sample=False),
+                       "beam=5, no_repeat_ngram=3": dict(num_beams=5, no_repeat_ngram_size=3, do_sample=False),
+                       "сэмпл T=1": dict(do_sample=True, temperature=1.0, top_k=0),
+                       "T=0.7, top-p=0.9": dict(do_sample=True, temperature=0.7, top_p=0.9, top_k=0),
+                       "top-k=40, rep.penalty=1.2": dict(do_sample=True, top_k=40, repetition_penalty=1.2)}.items():
+        torch.manual_seed(0)
+        out = lm.generate(**enc, max_new_tokens=35, pad_token_id=tok.eos_token_id, **cfg)[0, enc.input_ids.shape[1]:]
+        print(f"[{label:25s}] уникальных токенов {len(set(out.tolist())) / len(out):.2f}: {tok.decode(out)!r}")
+
+    # KV-cache: тот же жадный вывод, но без пересчёта прошлого
+    for use_cache in (False, True):
+        t0 = time.time(); lm.generate(**enc, max_new_tokens=60, do_sample=False, use_cache=use_cache, pad_token_id=tok.eos_token_id)
+        print(f"use_cache={use_cache}: {time.time() - t0:.2f} с на 60 токенов")
+except Exception as e:
+    print("не удалось загрузить с Hugging Face Hub (нужен интернет):", type(e).__name__, str(e)[:120])
+```
+
+Результат запуска:
+
+```text
+PPL    36.2  Москва является столицей Российской Федерации.
+PPL    45.1  Москва является столицей Французской Республики.
+PPL  4909.9  Федерации столицей Москва Российской является.
+[greedy                   ] уникальных токенов 0.71: ' интересным.  В нем есть все, что нужно для того, чтобы стать настоящим мужчиной.  Но, к сожалению, не все так просто.  В фильме есть и другие'
+[beam=5                   ] уникальных токенов 0.09: ' интересным.\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n'
+[beam=5, no_repeat_ngram=3] уникальных токенов 0.66: ' интересным.\n\n—\xa0Да,\xa0— сказал я.\xa0— И что же?\n\nОн посмотрел на меня с удивлением, но не сказал ни слова.\n'
+[сэмпл T=1                ] уникальных токенов 0.86: ' тяжелой книгой на любой вкус и цвет. Необходимо было что-то порезиться, забрызгать нервы и получить удовольствие.\n\n—\xa0Любовь нечаянно нагрянет,\xa0'
+[T=0.7, top-p=0.9         ] уникальных токенов 0.91: ' интересным и на мой взгляд очень интересным.  Спасибо за это всем тем, кто участвовал в этом проекте. \n Фильм "Три метра над уровнем неба" в качестве второго фильма с'
+[top-k=40, rep.penalty=1.2] уникальных токенов 0.97: ' ярким и сочными, но он не произвел на меня впечатления: я так привыкла получать новости о нем лишь мельком. Я почти заснула по дороге в аэропорт, когда раздался телефонный'
+use_cache=False: 5.88 с на 60 токенов
+use_cache=True: 2.44 с на 60 токенов
+```
+
+</details>
+
+<details>
+<summary><b>Что почитать / посмотреть</b></summary>
+
+- Лена Войта: [Language Modeling](https://lena-voita.github.io/nlp_course/language_modeling.html) · [yandexdataschool/nlp_course](https://github.com/yandexdataschool/nlp_course) (week02 — Language Modeling, week05 — LLM) ·  запись лекции «Language Modeling» ([Яндекс Диск](https://disk.yandex.ru/i/E4NlokgRT6Ci6g))
+- Учебник ML Яндекса: [Языковые модели](https://education.yandex.ru/handbook/ml/article/yazykovye-modeli)
+- [HF blog — How to generate text](https://huggingface.co/blog/how-to-generate) · [Lilian Weng — Controllable Neural Text Generation](https://lilianweng.github.io/posts/2021-01-02-controllable-text-generation/) · [Generalized Language Models](https://lilianweng.github.io/posts/2019-01-31-lm/) · [katnoria — NLG decoders](https://www.katnoria.com/nlg-decoders/) · [Karpathy — RNN effectiveness](http://karpathy.github.io/2015/05/21/rnn-effectiveness/) · [Lacker — Giving GPT-3 a Turing Test](https://lacker.io/ai/2020/07/06/giving-gpt-3-a-turing-test.html)
+- Курсы: Stanford [CS224n](https://web.stanford.edu/class/cs224n/) · [CS336 — Language Modeling from Scratch](https://cs336.stanford.edu/) · [DL2 HSE](https://github.com/thecrazymage/DL2_HSE) (week03–05)
+- [A. Karpathy — Let's build GPT: from scratch, in code, spelled out](https://www.youtube.com/watch?v=kCc8FmEb1nY) · репозиторий [nanoGPT](https://github.com/karpathy/nanoGPT)
+- Статьи: [Bengio 2003 — Neural Probabilistic LM](https://www.jmlr.org/papers/volume3/bengio03a/bengio03a.pdf) · [GPT-1](https://cdn.openai.com/research-covers/language-unsupervised/language_understanding_paper.pdf) · [GPT-2](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf) · [GPT-3](https://arxiv.org/abs/2005.14165) · [decaNLP / MQAN](https://arxiv.org/abs/1806.08730) · [Curious Case of Neural Text Degeneration](https://arxiv.org/abs/1904.09751) · [Unlikelihood Training](https://arxiv.org/abs/1908.04319) · [CTRL](https://arxiv.org/abs/1909.05858) · [Beam-Search Optimization](https://arxiv.org/abs/1606.02960) · [Extracting Training Data from LLMs](https://arxiv.org/abs/2012.07805) · [Emergent Abilities](https://arxiv.org/abs/2206.07682) · [Scaling Laws](https://arxiv.org/abs/2001.08361) · [Chinchilla](https://arxiv.org/abs/2203.15556) · [Pre-Trained Models: Past, Present and Future](https://arxiv.org/abs/2106.07139) · [A Survey of LLMs](https://arxiv.org/abs/2303.18223) · [Kneser–Ney / Chen & Goodman 1998](https://dash.harvard.edu/handle/1/25104739)
+
+</details>
+
+<details>
+<summary><b>Источники курса</b></summary>
 
 - `Лекция 10.pptx` (DEEP LEARNING, день 10, 69 слайдов; А. Дьяконов): моделирование языка, n-граммы и сглаживание, нейросетевые и RNN-LM, перплексия, стратегии генерации, дегенерация текстов, GPT / GPT-2 / GPT-3, размеры моделей, извлечение обучающих данных, итоги.
 - `NLP лекция_Сириус_Мамаев.html`, финальная часть: языковые модели, n-граммы, полносвязные LM с окном, RNN-LM.
 - `Повторение.pptx` — обзорные слайды по LM, декодированию и GPT.
 
+</details>
 
-<!-- materials:start -->
-**Файлы курса в репозитории:**
+<details>
+<summary><b>Литература к выводам</b></summary>
 
-- DL, лекция 10: языковые модели, GPT (лекция курса, файл в репозиторий не включён)
-- DL: повторение (обзор курса) (лекция курса, файл в репозиторий не включён)
-- NLP-лекция (Сириус): дистрибутивная семантика, word2vec, LM (лекция курса, файл в репозиторий не включён)
-<!-- materials:end -->
+- Jurafsky, Martin. [Speech and Language Processing, гл. 3 «N-gram Language Models»](https://web.stanford.edu/~jurafsky/slp3/) · Chen, Goodman. An Empirical Study of Smoothing Techniques for Language Modeling, 1998.
+- Holtzman et al. [The Curious Case of Neural Text Degeneration](https://arxiv.org/abs/1904.09751) · Welleck et al. [Unlikelihood Training](https://arxiv.org/abs/1908.04319) · Xu et al. [Learning to Break the Loop](https://arxiv.org/abs/2206.02369).
+- Kaplan et al. [Scaling Laws for Neural Language Models](https://arxiv.org/abs/2001.08361) · Hoffmann et al. [Training Compute-Optimal LLMs (Chinchilla)](https://arxiv.org/abs/2203.15556).
+- Shazeer. [Fast Transformer Decoding: One Write-Head is All You Need (MQA)](https://arxiv.org/abs/1911.02150) · Ainslie et al. [GQA](https://arxiv.org/abs/2305.13245) · Leviathan et al. [Speculative Decoding](https://arxiv.org/abs/2211.17192).
+- Carlini et al. [Extracting Training Data from Large Language Models](https://arxiv.org/abs/2012.07805), 2021 · Delétang et al. [Language Modeling Is Compression](https://arxiv.org/abs/2309.10668), 2023.
+
+</details>
+
+<details>
+<summary><b>Материалы курса и ссылки</b></summary>
+
+- **Лекции курса** (файлы в репозиторий не включены): DL, лекция 10: языковые модели, GPT · DL: повторение (обзор курса) · NLP-лекция (Сириус): дистрибутивная семантика, word2vec, LM
+- **Видео и внешние курсы:** [ Видео: «Language Modeling»](https://disk.yandex.ru/i/E4NlokgRT6Ci6g) · [Курс NLP ШАД (yandexdataschool/nlp_course)](https://github.com/yandexdataschool/nlp_course) · [Stanford CS224n — NLP with Deep Learning](https://web.stanford.edu/class/cs224n/) · [Stanford CS336 — Language Modeling from Scratch](https://cs336.stanford.edu/)
+
+</details>
 
 ---
 
-[← Шпаргалка](../../cheatsheet.ipynb) · [🔬 Выводы и математика →](deep.md) · [25. Дообучение LLM и PEFT →](../25_llm_finetuning_peft/README.md)
+[← 23. Трансформер и BERT](../23_transformer_bert/README.md) · [Оглавление курса](../../README.md) · [25. Дообучение LLM: SFT, PEFT (LoRA, QLoRA), выравнивание (RLHF, DPO) →](../25_llm_finetuning_peft/README.md)
