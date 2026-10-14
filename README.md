@@ -6,7 +6,7 @@
 
 **➡️ Начать: [`cheatsheet.ipynb`](cheatsheet.ipynb)**
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/USER/REPO/blob/main/cheatsheet.ipynb) [![Сайт](https://img.shields.io/badge/%D1%81%D0%B0%D0%B9%D1%82-GitHub%20Pages-blue)](https://USER.github.io/REPO/)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/thebelkadan/-machine-learning-and-neural-networks/blob/main/cheatsheet.ipynb) [![Сайт](https://img.shields.io/badge/%D1%81%D0%B0%D0%B9%D1%82-GitHub%20Pages-blue)](https://thebelkadan.github.io/-machine-learning-and-neural-networks/)
 
 ## Как пользоваться
 
