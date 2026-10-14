@@ -1,0 +1,28 @@
+# Подставляет адрес репозитория в кнопку «Open in Colab» и ссылку на сайт (USER/REPO → владелец/имя).
+# Срабатывает, пока в файлах остаются заглушки; после первой подстановки ничего не делает.
+name: links
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Подстановка адреса репозитория
+        run: |
+          if grep -q "USER/REPO\|USER.github.io" README.md cheatsheet.ipynb; then
+            owner="${GITHUB_REPOSITORY%/*}"; name="${GITHUB_REPOSITORY#*/}"
+            site="$(echo "$owner" | tr '[:upper:]' '[:lower:]').github.io/${name}"
+            sed -i -e "s#USER\.github\.io/REPO#${site}#g" -e "s#USER/REPO#${GITHUB_REPOSITORY}#g" README.md cheatsheet.ipynb
+            git config user.name "github-actions"
+            git config user.email "github-actions@users.noreply.github.com"
+            git commit -am "Ссылки на Colab и сайт"
+            git push
+          fi
